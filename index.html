@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shell's Bread</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Poppins:wght@400;500;600&display=swap');
+html,body{font-family:'Poppins',sans-serif;background-image:url('font.png');background-size:cover;background-position:center;background-attachment:fixed;color:#fff;min-height:100vh;margin:0}
+.logo-font{font-family:'Playfair Display',serif}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:0}
+.content{position:relative;z-index:1}
+.fade{opacity:0;transform:translateY(30px);animation:fade 1s ease-out forwards}
+.fade.d1{animation-delay:.15s}.fade.d2{animation-delay:.35s}.fade.d3{animation-delay:.55s}.fade.d4{animation-delay:.75s}
+@keyframes fade{to{opacity:1;transform:translateY(0)}}
+.btn-main{background:#F5C400;color:#000;transition:all .25s;box-shadow:0 10px 30px rgba(245,196,0,.25)}
+.btn-main:hover{transform:translateY(-3px) scale(1.02);box-shadow:0 18px 40px rgba(245,196,0,.4)}
+/* Barra superior con iconos de redes */
+.top-bar{position:fixed;top:18px;right:18px;display:flex;gap:12px;z-index:5}
+.icon-btn{width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.1);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;transition:all .25s;overflow:hidden}
+.icon-btn:hover{background:#F5C400;transform:translateY(-3px) scale(1.06);box-shadow:0 10px 25px rgba(245,196,0,.4)}
+.icon-btn img{width:62%;height:62%;object-fit:contain}
+</style>
+</head>
+<body class="flex items-center justify-center">
+<div class="overlay"></div>
+
+<!-- Barra superior con iconos -->
+<div class="top-bar">
+  <!-- Instagram -->
+  <a href="https://www.instagram.com/shells_bread" target="_blank">
+    <div class="icon-btn">
+      <img src="ig.png" alt="Instagram">
+    </div>
+  </a>
+  <!-- WhatsApp -->
+  <a href="https://wa.me/528717345351?text=Hola%20Marce." target="_blank">
+    <div class="icon-btn">
+      <img src="tel.png" alt="WhatsApp">
+    </div>
+  </a>
+</div>
+
+<main class="content w-full max-w-md mx-auto px-6 py-12 text-center min-h-screen flex flex-col items-center justify-center">
+    <img src="log.png" alt="Shell's Bread" class="h-32 sm:h-40 w-auto mb-6 fade d1">
+    <h1 class="logo-font text-5xl sm:text-6xl font-bold mb-3 text-[#F5C400] fade d2"></h1>
+    <p class="text-white/70 text-base sm:text-lg mb-10 fade d3">Pan artesanal, café y más.<br>Bienvenido a nuestra carta digital.</p>
+
+    <div class="w-full fade d4">
+        <a href="menu.html" class="btn-main block w-full py-4 rounded-2xl font-bold text-lg">
+            <i class="fas fa-utensils mr-2"></i>Ver Menú y Ordenar
+        </a>
+    </div>
+
+    <p class="text-white/30 text-xs mt-12 fade d4">© Shell's Bread</p>
+</main>
+</body>
+</html>
