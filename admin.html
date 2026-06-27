@@ -390,7 +390,7 @@ function renderCocina(){
   const grid=document.getElementById('cocina-grid');
   document.getElementById('cocina-empty').classList.toggle('hidden',orders.length>0);
   grid.innerHTML=orders.map(o=>{
-    const itemsHtml=o.items.map(i=>`<div class="flex justify-between py-1 border-b border-white/5"><span><span class="gold font-bold">${i.qty}×</span> ${i.name}</span></div>`).join('');
+    const itemsHtml=o.items.map(i=>`<div class="flex justify-between py-1 border-b border-white/5"><span><span class="gold font-bold">${i.qty}×</span> ${i.name}${i.size?` <span class="gold" style="font-size:.78rem">(${i.size})</span>`:''}</span></div>`).join('');
     const next=o.status==='nuevo'?`<button class="btn btn-gold flex-1" onclick="setStatus(${o.id},'preparando')"><i class="fas fa-fire"></i> Preparar</button>`
       :o.status==='preparando'?`<button class="btn btn-green flex-1" onclick="setStatus(${o.id},'listo')"><i class="fas fa-check"></i> Marcar listo</button>`
       :`<span class="btn flex-1" style="background:rgba(34,197,94,.15);color:#86efac;cursor:default"><i class="fas fa-bell"></i> Listo · esperando caja</span>`;
@@ -426,7 +426,7 @@ function renderCaja(){
         <span class="font-bold">${o.table||'Sin mesa'}</span><span class="tag tag-${o.status}">${o.status}</span>
       </div>
       <p class="text-white/40 text-xs mb-2">#${String(o.id).slice(-4)} · ${o.items.reduce((s,i)=>s+i.qty,0)} art.</p>
-      <div class="text-xs text-white/60 mb-3">${o.items.map(i=>i.qty+'× '+i.name).join(', ')}</div>
+      <div class="text-xs text-white/60 mb-3">${o.items.map(i=>i.qty+'× '+i.name+(i.size?' ('+i.size+')':'')).join(', ')}</div>
       <div class="flex items-center justify-between">
         <span class="gold font-bold text-xl">${money(o.total)}</span>
         <button class="btn btn-green" onclick="openPay(${o.id})"><i class="fas fa-cash-register"></i> Cobrar</button>
@@ -462,11 +462,84 @@ window.confirmPay=function(){
   const id=+document.getElementById('pay-id').value;
   const method=document.getElementById('pay-method').value;
   const order=ordersCache[id];if(!order)return;
-  if(method==='efectivo'){const c=+document.getElementById('pay-cash').value||0;
-    if(c&&c<order.total){if(!confirm('El efectivo es menor al total. ¿Cobrar de todos modos?'))return;}}
-  db.ref('orders/'+id).update({status:'cobrado',paidAt:new Date().toISOString(),paymentMethod:method});
+  let cash=0,change=0;
+  if(method==='efectivo'){cash=+document.getElementById('pay-cash').value||0;
+    if(cash&&cash<order.total){if(!confirm('El efectivo es menor al total. ¿Cobrar de todos modos?'))return;}
+    change=Math.max(0,cash-order.total);}
+  const paidAt=new Date().toISOString();
+  db.ref('orders/'+id).update({status:'cobrado',paidAt,paymentMethod:method});
   closeModal('payModal');showToast('¡Cobrado! '+money(order.total));
+  printTicket(order,method,cash,change,paidAt);
 };
+
+/* ============ TICKET / RECIBO ============ */
+const PAY_LABELS={efectivo:'Efectivo',tarjeta:'Tarjeta',transferencia:'Transferencia'};
+function escapeHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function buildTicketHTML(order,method,cash,change,paidAt){
+  const d=paidAt?new Date(paidAt):new Date();
+  const fecha=d.toLocaleDateString('es-MX')+'  '+d.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'});
+  const rows=order.items.map(i=>{
+    const nm=escapeHtml(i.name+(i.size?' ('+i.size+')':''));
+    return `<tr><td class="q">${i.qty}x</td><td class="n">${nm}</td><td class="p">${money(i.price*i.qty)}</td></tr>`;
+  }).join('');
+  let pago='';
+  if(method==='efectivo'&&cash>0){
+    pago=`<div class="row"><span>Paga con</span><span>${money(cash)}</span></div>`
+        +`<div class="row"><span>Cambio</span><span>${money(change)}</span></div>`;
+  }
+  // Las etiquetas de estilo y titulo del ticket se arman partidas a proposito
+  // (por ejemplo '<sty'+'le>') para que ningun editor o preview (VS Code, Live
+  // Server, etc.) las confunda con el fin del bloque de codigo de la pagina y
+  // termine mostrando el codigo como texto.
+  const css=
+    "*{margin:0;padding:0;box-sizing:border-box}"+
+    "body{font-family:'Courier New',monospace;color:#000;background:#fff;padding:10px;width:280px}"+
+    ".c{text-align:center}"+
+    ".name{font-size:20px;font-weight:bold;letter-spacing:2px}"+
+    ".sub{font-size:11px;margin-top:2px}"+
+    ".hr{border-top:1px dashed #000;margin:8px 0}"+
+    "table{width:100%;font-size:12px;border-collapse:collapse}"+
+    "td{padding:2px 0;vertical-align:top}"+
+    "td.q{width:30px}"+
+    "td.p{text-align:right;white-space:nowrap;width:62px}"+
+    ".row{display:flex;justify-content:space-between;font-size:12px;margin:3px 0}"+
+    ".total{font-size:15px;font-weight:bold}"+
+    ".foot{font-size:11px;margin-top:10px}"+
+    "@media print{body{width:auto;padding:0}}";
+  const styleTag='<sty'+'le>'+css+'</sty'+'le>';
+  const titleTag='<tit'+'le>Ticket Shell\'s Bread</tit'+'le>';
+  const body=`
+    <div class="c"><div class="name">SHELL'S BREAD</div><div class="sub">Panadería &amp; Cafetería</div></div>
+    <div class="hr"></div>
+    <div class="row"><span>Fecha</span><span>${fecha}</span></div>
+    <div class="row"><span>Ticket</span><span>#${String(order.id).slice(-4)}</span></div>
+    <div class="row"><span>Mesa/Nombre</span><span>${escapeHtml(order.table||'—')}</span></div>
+    <div class="hr"></div>
+    <table>${rows}</table>
+    <div class="hr"></div>
+    <div class="row total"><span>TOTAL</span><span>${money(order.total)}</span></div>
+    <div class="row"><span>Método de pago</span><span>${PAY_LABELS[method]||method}</span></div>
+    ${pago}
+    <div class="hr"></div>
+    <div class="c foot">¡Gracias por su compra!<br>Vuelva pronto 🍞</div>`;
+  return '<!DOCTYPE html><html><head><meta charset="utf-8">'+titleTag+styleTag+'</head><body>'+body+'</bo'+'dy></ht'+'ml>';
+}
+function printTicket(order,method,cash,change,paidAt){
+  try{
+    const html=buildTicketHTML(order,method,cash,change,paidAt);
+    const iframe=document.createElement('iframe');
+    iframe.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    document.body.appendChild(iframe);
+    let done=false;
+    const go=()=>{if(done)return;done=true;
+      try{iframe.contentWindow.focus();iframe.contentWindow.print();}catch(e){console.error('print',e);}
+      setTimeout(()=>{iframe.parentNode&&iframe.parentNode.removeChild(iframe);},1500);};
+    iframe.onload=()=>setTimeout(go,80);
+    const doc=iframe.contentWindow.document;
+    doc.open();doc.write(html);doc.close();
+    setTimeout(go,400); // respaldo por si onload no dispara
+  }catch(e){console.error('printTicket',e);}
+}
 function corteCaja(){
   const c=getOrders().filter(o=>o.status==='cobrado'&&o.paidAt&&inRange(o.paidAt,'today'));
   const tot=c.reduce((s,o)=>s+o.total,0);
