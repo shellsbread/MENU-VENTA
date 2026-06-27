@@ -238,6 +238,8 @@ window.goToSlide=function(sectionId,index){currentSlides[sectionId]=index;update
 
 function slugify(s){return s.toLowerCase().replace(/[^a-z0-9]/g,'-');}
 function ea(s){return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
+// Nombre limpio del tamaño a partir de la etiqueta (ej: "Chico $70" -> "Chico")
+function sizeName(s){return (s.name||s.label||'').replace(/\s*\$\d+.*/,'').trim();}
 
 function openModal(sec){
     const modal=document.getElementById('modal');
@@ -246,9 +248,13 @@ function openModal(sec){
     let itemsHtml=items.map(item=>{
         const hasSizes=item.sizes&&item.sizes.length>0;
         const slug=slugify(item.name);
-        const sizesHtml=hasSizes?`<div class="flex gap-2 mt-2 flex-wrap" id="sizes-${slug}">`+item.sizes.map((s,i)=>`<button class="size-btn ${i===0?'selected':''}" onclick="selectSize('${slug}',${i},${s.price},'${ea(item.name)}')">${s.label}</button>`).join('')+`</div>`:'';
+        const sizesHtml=hasSizes?`<div class="flex gap-2 mt-2 flex-wrap" id="sizes-${slug}">`+item.sizes.map((s,i)=>{
+            const sname=sizeName(s);
+            return`<button class="size-btn ${i===0?'selected':''}" onclick="selectSize('${slug}',${i},${s.price},'${ea(item.name)}','${ea(sname)}')">${s.label}</button>`;
+        }).join('')+`</div>`:'';
         const displayPrice=hasSizes?item.sizes[0].price:item.price;
-        return`<div class="flex justify-between items-start border-b border-white/20 pb-4 gap-4"><div class="flex-1"><span class="font-bold block">${item.name}</span>${item.desc?`<small class="text-white/60 block">${item.desc}</small>`:''}${sizesHtml}</div><div class="flex items-center gap-3 flex-shrink-0"><span class="font-bold text-lg text-[#F5C400]" id="price-${slug}">$${displayPrice}</span><button class="add-btn bg-[#F5C400] text-black w-8 h-8 rounded-full flex items-center justify-center font-bold text-xl" id="addbtn-${slug}" onclick="addToCart('${ea(item.name)}',${displayPrice},'${ea(item.desc||'')}')">+</button></div></div>`;
+        const defaultSize=hasSizes?sizeName(item.sizes[0]):'';
+        return`<div class="flex justify-between items-start border-b border-white/20 pb-4 gap-4"><div class="flex-1"><span class="font-bold block">${item.name}</span>${item.desc?`<small class="text-white/60 block">${item.desc}</small>`:''}${sizesHtml}</div><div class="flex items-center gap-3 flex-shrink-0"><span class="font-bold text-lg text-[#F5C400]" id="price-${slug}">$${displayPrice}</span><button class="add-btn bg-[#F5C400] text-black w-8 h-8 rounded-full flex items-center justify-center font-bold text-xl" id="addbtn-${slug}" onclick="addToCart('${ea(item.name)}',${displayPrice},'${ea(item.desc||'')}','${ea(defaultSize)}')">+</button></div></div>`;
     }).join('');
     content.innerHTML=`<h2 class="logo-font text-5xl font-bold text-center mb-8 text-white">${sec.title}</h2>${createCarousel(sec.id)}<div class="space-y-4">${itemsHtml}</div>`;
     modal.classList.remove('hidden');
@@ -256,10 +262,10 @@ function openModal(sec){
     setTimeout(()=>initCarousel(sec.id),150);
 }
 
-window.selectSize=function(slug,idx,price,itemName){
+window.selectSize=function(slug,idx,price,itemName,sizeNm){
     document.querySelectorAll(`#sizes-${slug} .size-btn`).forEach((b,i)=>b.classList.toggle('selected',i===idx));
     document.getElementById(`price-${slug}`).textContent=`$${price}`;
-    document.getElementById(`addbtn-${slug}`).setAttribute('onclick',`addToCart('${ea(itemName)}',${price},'')`);
+    document.getElementById(`addbtn-${slug}`).setAttribute('onclick',`addToCart('${ea(itemName)}',${price},'','${ea(sizeNm||'')}')`);
 };
 
 function closeModal(){
@@ -273,16 +279,18 @@ document.addEventListener('keydown',e=>{if(e.key==="Escape")closeModal();});
 // ==================== CARRITO ====================
 let cart=[];
 
-window.addToCart=function(name,price,desc){
-    const existing=cart.find(i=>i.name===name);
+window.addToCart=function(name,price,desc,size){
+    size=size||'';
+    const existing=cart.find(i=>i.name===name&&(i.size||'')===size);
     if(existing)existing.qty++;
-    else cart.push({name,price,desc,qty:1});
+    else cart.push({name,price,desc,size,qty:1});
     updateCartUI();
-    showToast(`+ ${name}`);
+    showToast(`+ ${name}${size?' ('+size+')':''}`);
 };
 
-window.removeFromCart=function(name){
-    const idx=cart.findIndex(i=>i.name===name);
+window.removeFromCart=function(name,size){
+    size=size||'';
+    const idx=cart.findIndex(i=>i.name===name&&(i.size||'')===size);
     if(idx===-1)return;
     if(cart[idx].qty>1)cart[idx].qty--;
     else cart.splice(idx,1);
@@ -300,7 +308,7 @@ function updateCartUI(){
     document.getElementById('cart-total').textContent=`$${total}`;
     const el=document.getElementById('cart-items');
     if(cart.length===0){el.innerHTML=`<p class="text-white/30 text-sm text-center py-8">Tu carrito está vacío</p>`;return;}
-    el.innerHTML=cart.map(item=>`<div class="item-row py-3 flex items-center justify-between gap-3"><div class="flex-1 min-w-0"><p class="text-white text-sm font-medium truncate">${item.name}</p><p class="text-[#F5C400] text-xs">$${item.price} c/u</p></div><div class="flex items-center gap-2"><button class="qty-btn bg-white/10 hover:bg-white/20 text-white" onclick="removeFromCart('${ea(item.name)}')">−</button><span class="text-white font-bold w-5 text-center text-sm">${item.qty}</span><button class="qty-btn bg-[#F5C400]/20 hover:bg-[#F5C400]/40 text-[#F5C400]" onclick="addToCart('${ea(item.name)}',${item.price},'')">+</button></div><span class="text-white font-bold text-sm w-14 text-right">$${item.price*item.qty}</span></div>`).join('');
+    el.innerHTML=cart.map(item=>`<div class="item-row py-3 flex items-center justify-between gap-3"><div class="flex-1 min-w-0"><p class="text-white text-sm font-medium truncate">${item.name}${item.size?` <span class="text-white/50">· ${item.size}</span>`:''}</p><p class="text-[#F5C400] text-xs">$${item.price} c/u</p></div><div class="flex items-center gap-2"><button class="qty-btn bg-white/10 hover:bg-white/20 text-white" onclick="removeFromCart('${ea(item.name)}','${ea(item.size||'')}')">−</button><span class="text-white font-bold w-5 text-center text-sm">${item.qty}</span><button class="qty-btn bg-[#F5C400]/20 hover:bg-[#F5C400]/40 text-[#F5C400]" onclick="addToCart('${ea(item.name)}',${item.price},'','${ea(item.size||'')}')">+</button></div><span class="text-white font-bold text-sm w-14 text-right">$${item.price*item.qty}</span></div>`).join('');
 }
 
 function openCart(){document.getElementById('cart-panel').classList.add('open');document.getElementById('cart-overlay').classList.add('active');}
