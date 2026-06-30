@@ -94,9 +94,15 @@
         <h2 class="logo-font text-2xl text-[#F5C400] font-bold">Tu Pedido</h2>
         <button onclick="closeCart()" class="text-white/60 hover:text-white text-3xl transition leading-none">×</button>
     </div>
-    <div class="px-5 py-4 border-b border-white/10">
-        <label class="block text-white/60 text-xs uppercase tracking-widest mb-2">Mesa / Nombre</label>
-        <input id="table-input" type="text" placeholder="Ej: Mesa 3 o Juan" class="w-full bg-white/5 border border-white/20 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-[#F5C400]/60 placeholder-white/30">
+    <div class="px-5 py-4 border-b border-white/10 space-y-3">
+        <div>
+            <label class="block text-white/60 text-xs uppercase tracking-widest mb-2">Nombre <span class="text-[#F5C400]">*</span></label>
+            <input id="table-input" type="text" placeholder="Tu nombre" class="w-full bg-white/5 border border-white/20 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-[#F5C400]/60 placeholder-white/30">
+        </div>
+        <div>
+            <label class="block text-white/60 text-xs uppercase tracking-widest mb-2">Celular <span class="text-[#F5C400]">*</span></label>
+            <input id="phone-input" type="tel" inputmode="numeric" placeholder="10 dígitos" class="w-full bg-white/5 border border-white/20 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-[#F5C400]/60 placeholder-white/30">
+        </div>
     </div>
     <div id="cart-items" class="px-5 py-4 space-y-2 flex-1">
         <p class="text-white/30 text-sm text-center py-8">Tu carrito está vacío</p>
@@ -238,8 +244,6 @@ window.goToSlide=function(sectionId,index){currentSlides[sectionId]=index;update
 
 function slugify(s){return s.toLowerCase().replace(/[^a-z0-9]/g,'-');}
 function ea(s){return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
-// Nombre limpio del tamaño a partir de la etiqueta (ej: "Chico $70" -> "Chico")
-function sizeName(s){return (s.name||s.label||'').replace(/\s*\$\d+.*/,'').trim();}
 
 function openModal(sec){
     const modal=document.getElementById('modal');
@@ -248,13 +252,11 @@ function openModal(sec){
     let itemsHtml=items.map(item=>{
         const hasSizes=item.sizes&&item.sizes.length>0;
         const slug=slugify(item.name);
-        const sizesHtml=hasSizes?`<div class="flex gap-2 mt-2 flex-wrap" id="sizes-${slug}">`+item.sizes.map((s,i)=>{
-            const sname=sizeName(s);
-            return`<button class="size-btn ${i===0?'selected':''}" onclick="selectSize('${slug}',${i},${s.price},'${ea(item.name)}','${ea(sname)}')">${s.label}</button>`;
-        }).join('')+`</div>`:'';
+        const sizeName=s=>s.label.split('$')[0].trim();
+        const sizesHtml=hasSizes?`<div class="flex gap-2 mt-2 flex-wrap" id="sizes-${slug}">`+item.sizes.map((s,i)=>`<button class="size-btn ${i===0?'selected':''}" onclick="selectSize('${slug}',${i},${s.price},'${ea(item.name)}','${ea(sizeName(s))}')">${s.label}</button>`).join('')+`</div>`:'';
         const displayPrice=hasSizes?item.sizes[0].price:item.price;
-        const defaultSize=hasSizes?sizeName(item.sizes[0]):'';
-        return`<div class="flex justify-between items-start border-b border-white/20 pb-4 gap-4"><div class="flex-1"><span class="font-bold block">${item.name}</span>${item.desc?`<small class="text-white/60 block">${item.desc}</small>`:''}${sizesHtml}</div><div class="flex items-center gap-3 flex-shrink-0"><span class="font-bold text-lg text-[#F5C400]" id="price-${slug}">$${displayPrice}</span><button class="add-btn bg-[#F5C400] text-black w-8 h-8 rounded-full flex items-center justify-center font-bold text-xl" id="addbtn-${slug}" onclick="addToCart('${ea(item.name)}',${displayPrice},'${ea(item.desc||'')}','${ea(defaultSize)}')">+</button></div></div>`;
+        const initSize=hasSizes?sizeName(item.sizes[0]):'';
+        return`<div class="flex justify-between items-start border-b border-white/20 pb-4 gap-4"><div class="flex-1"><span class="font-bold block">${item.name}</span>${item.desc?`<small class="text-white/60 block">${item.desc}</small>`:''}${sizesHtml}</div><div class="flex items-center gap-3 flex-shrink-0"><span class="font-bold text-lg text-[#F5C400]" id="price-${slug}">$${displayPrice}</span><button class="add-btn bg-[#F5C400] text-black w-8 h-8 rounded-full flex items-center justify-center font-bold text-xl" id="addbtn-${slug}" onclick="addToCart('${ea(item.name)}',${displayPrice},'${ea(item.desc||'')}','${ea(initSize)}')">+</button></div></div>`;
     }).join('');
     content.innerHTML=`<h2 class="logo-font text-5xl font-bold text-center mb-8 text-white">${sec.title}</h2>${createCarousel(sec.id)}<div class="space-y-4">${itemsHtml}</div>`;
     modal.classList.remove('hidden');
@@ -262,10 +264,10 @@ function openModal(sec){
     setTimeout(()=>initCarousel(sec.id),150);
 }
 
-window.selectSize=function(slug,idx,price,itemName,sizeNm){
+window.selectSize=function(slug,idx,price,itemName,size){
     document.querySelectorAll(`#sizes-${slug} .size-btn`).forEach((b,i)=>b.classList.toggle('selected',i===idx));
     document.getElementById(`price-${slug}`).textContent=`$${price}`;
-    document.getElementById(`addbtn-${slug}`).setAttribute('onclick',`addToCart('${ea(itemName)}',${price},'','${ea(sizeNm||'')}')`);
+    document.getElementById(`addbtn-${slug}`).setAttribute('onclick',`addToCart('${ea(itemName)}',${price},'','${ea(size)}')`);
 };
 
 function closeModal(){
@@ -279,9 +281,11 @@ document.addEventListener('keydown',e=>{if(e.key==="Escape")closeModal();});
 // ==================== CARRITO ====================
 let cart=[];
 
+function cartKey(name,size){return name+'|'+(size||'');}
+
 window.addToCart=function(name,price,desc,size){
     size=size||'';
-    const existing=cart.find(i=>i.name===name&&(i.size||'')===size);
+    const existing=cart.find(i=>cartKey(i.name,i.size)===cartKey(name,size));
     if(existing)existing.qty++;
     else cart.push({name,price,desc,size,qty:1});
     updateCartUI();
@@ -289,8 +293,7 @@ window.addToCart=function(name,price,desc,size){
 };
 
 window.removeFromCart=function(name,size){
-    size=size||'';
-    const idx=cart.findIndex(i=>i.name===name&&(i.size||'')===size);
+    const idx=cart.findIndex(i=>cartKey(i.name,i.size)===cartKey(name,size||''));
     if(idx===-1)return;
     if(cart[idx].qty>1)cart[idx].qty--;
     else cart.splice(idx,1);
@@ -308,7 +311,7 @@ function updateCartUI(){
     document.getElementById('cart-total').textContent=`$${total}`;
     const el=document.getElementById('cart-items');
     if(cart.length===0){el.innerHTML=`<p class="text-white/30 text-sm text-center py-8">Tu carrito está vacío</p>`;return;}
-    el.innerHTML=cart.map(item=>`<div class="item-row py-3 flex items-center justify-between gap-3"><div class="flex-1 min-w-0"><p class="text-white text-sm font-medium truncate">${item.name}${item.size?` <span class="text-white/50">· ${item.size}</span>`:''}</p><p class="text-[#F5C400] text-xs">$${item.price} c/u</p></div><div class="flex items-center gap-2"><button class="qty-btn bg-white/10 hover:bg-white/20 text-white" onclick="removeFromCart('${ea(item.name)}','${ea(item.size||'')}')">−</button><span class="text-white font-bold w-5 text-center text-sm">${item.qty}</span><button class="qty-btn bg-[#F5C400]/20 hover:bg-[#F5C400]/40 text-[#F5C400]" onclick="addToCart('${ea(item.name)}',${item.price},'','${ea(item.size||'')}')">+</button></div><span class="text-white font-bold text-sm w-14 text-right">$${item.price*item.qty}</span></div>`).join('');
+    el.innerHTML=cart.map(item=>`<div class="item-row py-3 flex items-center justify-between gap-3"><div class="flex-1 min-w-0"><p class="text-white text-sm font-medium truncate">${item.name}${item.size?` <span class="text-white/50">(${item.size})</span>`:''}</p><p class="text-[#F5C400] text-xs">$${item.price} c/u</p></div><div class="flex items-center gap-2"><button class="qty-btn bg-white/10 hover:bg-white/20 text-white" onclick="removeFromCart('${ea(item.name)}','${ea(item.size||'')}')">−</button><span class="text-white font-bold w-5 text-center text-sm">${item.qty}</span><button class="qty-btn bg-[#F5C400]/20 hover:bg-[#F5C400]/40 text-[#F5C400]" onclick="addToCart('${ea(item.name)}',${item.price},'','${ea(item.size||'')}')">+</button></div><span class="text-white font-bold text-sm w-14 text-right">$${item.price*item.qty}</span></div>`).join('');
 }
 
 function openCart(){document.getElementById('cart-panel').classList.add('open');document.getElementById('cart-overlay').classList.add('active');}
@@ -317,23 +320,41 @@ function closeCart(){document.getElementById('cart-panel').classList.remove('ope
 // ==================== ENVÍO DE PEDIDO (Firebase) ====================
 function sendOrder(){
     if(cart.length===0){showToast('Agrega algo primero 😊');return;}
-    const table=document.getElementById('table-input').value.trim()||'Sin mesa';
-    const notes=document.getElementById('order-notes').value.trim();
+    const table=document.getElementById('table-input').value.trim();
+    const phone=document.getElementById('phone-input').value.trim();
+    if(!table){showToast('Escribe tu nombre 🙂');return;}
+    if(phone.replace(/\D/g,'').length<10){showToast('Escribe un celular válido (10 dígitos) 📱');return;}
+    if(typeof db==='undefined'||!db){showToast('⚠️ Falta configurar Firebase');return;}
+    const newNotes=document.getElementById('order-notes').value.trim();
     const id=Date.now();
-    const order={id,table,notes,items:[...cart],total:cart.reduce((s,i)=>s+i.price*i.qty,0),status:'nuevo',createdAt:new Date().toISOString()};
-    try{
-        db.ref('orders/'+id).set(order)
-          .then(()=>showToast('¡Pedido enviado a cocina! 🍞'))
-          .catch(err=>{console.error(err);showToast('Error al enviar. Revisa tu conexión.');});
-    }catch(e){
-        console.error('Firebase no configurado:',e);
-        showToast('⚠️ Falta configurar Firebase');
-        return;
-    }
-    clearCart();
-    document.getElementById('table-input').value='';
-    document.getElementById('order-notes').value='';
-    closeCart();
+    const items=cart.map(i=>({...i}));
+    const norm=s=>(s||'').trim().toLowerCase();
+    db.ref('orders').once('value').then(snap=>{
+        const all=snap.val()||{};
+        // Si ya hay un pedido activo (no cobrado/cancelado) con el mismo nombre, se fusiona.
+        const existing=Object.values(all).find(o=>o&&o.table&&norm(o.table)===norm(table)&&o.status!=='cobrado'&&o.status!=='cancelado');
+        if(existing){
+            const merged=Array.isArray(existing.items)?existing.items.map(i=>({...i})):[];
+            items.forEach(c=>{
+                const f=merged.find(i=>cartKey(i.name,i.size)===cartKey(c.name,c.size));
+                if(f)f.qty+=c.qty; else merged.push({...c});
+            });
+            const total=merged.reduce((s,i)=>s+i.price*i.qty,0);
+            const notes=[existing.notes,newNotes].filter(Boolean).join(' | ');
+            return db.ref('orders/'+existing.id).update({items:merged,total,status:'nuevo',phone:phone||existing.phone||'',notes})
+                     .then(()=>'¡Se sumó a tu pedido anterior! 🍞');
+        }else{
+            const order={id,table,phone,notes:newNotes,items,total:items.reduce((s,i)=>s+i.price*i.qty,0),status:'nuevo',createdAt:new Date().toISOString()};
+            return db.ref('orders/'+id).set(order).then(()=>'¡Pedido enviado a cocina! 🍞');
+        }
+    }).then(msg=>{
+        clearCart();
+        document.getElementById('table-input').value='';
+        document.getElementById('phone-input').value='';
+        document.getElementById('order-notes').value='';
+        closeCart();
+        showToast(msg);
+    }).catch(err=>{console.error(err);showToast('Error al enviar. Revisa tu conexión.');});
 }
 
 function showToast(msg){
