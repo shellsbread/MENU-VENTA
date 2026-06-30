@@ -6,6 +6,8 @@
 <title>Panel Admin - Shell's Bread</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<!-- jsPDF (genera el ticket en PDF) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
@@ -79,8 +81,8 @@ tr.low td{background:rgba(239,68,68,.08)}
       <button class="tab-btn active" data-tab="cocina"><i class="fas fa-fire"></i> Cocina <span class="tab-badge hidden" id="badge-cocina">0</span></button>
       <button class="tab-btn" data-tab="caja"><i class="fas fa-cash-register"></i> Caja <span class="tab-badge hidden" id="badge-caja">0</span></button>
       <button class="tab-btn" data-tab="inventario"><i class="fas fa-boxes-stacked"></i> Inventario <span class="tab-badge hidden" id="badge-inv">0</span></button>
-      <button class="tab-btn" data-tab="costos"><i class="fas fa-tags"></i> Costos</button>
-      <button class="tab-btn" data-tab="reportes"><i class="fas fa-chart-line"></i> Reportes</button>
+      <button class="tab-btn" data-tab="costos"><i class="fas fa-tags"></i> Costos <i class="fas fa-lock text-xs opacity-60"></i></button>
+      <button class="tab-btn" data-tab="reportes"><i class="fas fa-chart-line"></i> Reportes <i class="fas fa-lock text-xs opacity-60"></i></button>
     </nav>
     <div class="hidden md:flex items-center gap-2 text-xs text-white/40" id="clock"></div>
   </div>
@@ -105,13 +107,18 @@ tr.low td{background:rgba(239,68,68,.08)}
   <section id="tab-caja" class="hidden">
     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
       <h1 class="logo-font text-2xl font-bold">Caja</h1>
-      <button class="btn btn-ghost" onclick="corteCaja()"><i class="fas fa-receipt"></i> Corte de caja (hoy)</button>
+      <div class="flex gap-2">
+        <button class="btn btn-red" onclick="openGastoModal()"><i class="fas fa-money-bill-wave"></i> Registrar gasto</button>
+        <button class="btn btn-ghost" onclick="corteCaja()"><i class="fas fa-receipt"></i> Corte de caja (hoy)</button>
+      </div>
     </div>
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
       <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Cobrado hoy</p><p class="stat-num gold" id="caja-hoy">$0</p></div>
+      <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Personas hoy</p><p class="stat-num text-blue-300" id="caja-personas">0</p></div>
       <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Pedidos cobrados</p><p class="stat-num" id="caja-count">0</p></div>
       <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Efectivo</p><p class="stat-num text-green-400" id="caja-efectivo">$0</p></div>
       <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Tarjeta / Transf.</p><p class="stat-num text-blue-400" id="caja-otros">$0</p></div>
+      <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Gastos hoy</p><p class="stat-num text-red-400" id="caja-gastos">$0</p></div>
     </div>
     <h2 class="font-semibold mb-3 text-white/70">Pedidos por cobrar</h2>
     <div id="caja-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
@@ -121,24 +128,41 @@ tr.low td{background:rgba(239,68,68,.08)}
   <!-- ===================== INVENTARIO ===================== -->
   <section id="tab-inventario" class="hidden">
     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-      <h1 class="logo-font text-2xl font-bold">Inventario de insumos</h1>
-      <button class="btn btn-gold" onclick="openInvModal()"><i class="fas fa-plus"></i> Nuevo insumo</button>
+      <h1 class="logo-font text-2xl font-bold">Inventario</h1>
+      <div class="flex gap-2">
+        <button id="subtab-insumos" class="btn btn-gold" onclick="invSub('insumos')"><i class="fas fa-boxes-stacked"></i> Insumos</button>
+        <button id="subtab-recetas" class="btn btn-ghost" onclick="invSub('recetas')"><i class="fas fa-book"></i> Recetas</button>
+      </div>
     </div>
-    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
-      <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Insumos</p><p class="stat-num" id="inv-total">0</p></div>
-      <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Bajo stock</p><p class="stat-num text-red-400" id="inv-low">0</p></div>
-      <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Valor de inventario</p><p class="stat-num gold" id="inv-value">$0</p></div>
+
+    <!-- Vista INSUMOS -->
+    <div id="inv-view-insumos">
+      <div class="flex justify-end mb-3">
+        <button class="btn btn-gold" onclick="openInvModal()"><i class="fas fa-plus"></i> Nuevo insumo</button>
+      </div>
+      <p class="text-white/40 text-sm mb-4"><i class="fas fa-circle-info"></i> El stock solo se <b>agrega</b> manualmente. Se descuenta automáticamente al cobrar, según la <b>receta</b> de cada platillo (pestaña Recetas) o, si no tiene receta, por coincidencia de nombre.</p>
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
+        <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Insumos</p><p class="stat-num" id="inv-total">0</p></div>
+        <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Bajo stock</p><p class="stat-num text-red-400" id="inv-low">0</p></div>
+        <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Valor de inventario</p><p class="stat-num gold" id="inv-value">$0</p></div>
+      </div>
+      <div class="card overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead><tr class="text-white/40 text-xs uppercase tracking-wider border-b border-white/10">
+            <th class="text-left p-3">Insumo</th><th class="text-right p-3">Stock</th><th class="text-left p-3">Unidad</th>
+            <th class="text-right p-3">Mínimo</th><th class="text-right p-3">Costo unit.</th><th class="text-right p-3">Valor</th>
+            <th class="text-center p-3">Acciones</th>
+          </tr></thead>
+          <tbody id="inv-body"></tbody>
+        </table>
+        <p id="inv-empty" class="text-white/30 text-center py-12">Aún no hay insumos. Agrega el primero con "Nuevo insumo".</p>
+      </div>
     </div>
-    <div class="card overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead><tr class="text-white/40 text-xs uppercase tracking-wider border-b border-white/10">
-          <th class="text-left p-3">Insumo</th><th class="text-right p-3">Stock</th><th class="text-left p-3">Unidad</th>
-          <th class="text-right p-3">Mínimo</th><th class="text-right p-3">Costo unit.</th><th class="text-right p-3">Valor</th>
-          <th class="text-center p-3">Acciones</th>
-        </tr></thead>
-        <tbody id="inv-body"></tbody>
-      </table>
-      <p id="inv-empty" class="text-white/30 text-center py-12">Aún no hay insumos. Agrega el primero con "Nuevo insumo".</p>
+
+    <!-- Vista RECETAS -->
+    <div id="inv-view-recetas" class="hidden">
+      <p class="text-white/40 text-sm mb-4"><i class="fas fa-circle-info"></i> Define qué insumos y cuánto consume cada platillo. Al cobrarlo, el sistema descuenta esos insumos del inventario. <b>Primero crea los insumos</b> en la pestaña Insumos (ej. Pan, Jamón, Tomate, Aguacate).</p>
+      <div id="recetas-list" class="space-y-6"></div>
     </div>
   </section>
 
@@ -146,7 +170,10 @@ tr.low td{background:rgba(239,68,68,.08)}
   <section id="tab-costos" class="hidden">
     <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
       <h1 class="logo-font text-2xl font-bold">Costo por producto</h1>
-      <button class="btn btn-gold" onclick="saveCosts()"><i class="fas fa-floppy-disk"></i> Guardar costos</button>
+      <div class="flex gap-2">
+        <button class="btn btn-ghost" onclick="logoutOwner()"><i class="fas fa-right-from-bracket"></i> Salir</button>
+        <button class="btn btn-gold" onclick="saveCosts()"><i class="fas fa-floppy-disk"></i> Guardar costos</button>
+      </div>
     </div>
     <p class="text-white/40 text-sm mb-4">Define cuánto te cuesta producir cada producto. Con esto se calcula el margen y la ganancia neta en Reportes.</p>
     <div id="costos-list" class="space-y-6"></div>
@@ -164,12 +191,14 @@ tr.low td{background:rgba(239,68,68,.08)}
           <option value="all">Todo</option>
         </select>
         <button class="btn btn-ghost" onclick="window.print()"><i class="fas fa-print"></i> Imprimir</button>
+        <button class="btn btn-ghost" onclick="logoutOwner()"><i class="fas fa-right-from-bracket"></i> Salir</button>
       </div>
     </div>
 
     <div id="printArea">
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+    <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
       <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Ventas</p><p class="stat-num gold" id="rep-ventas">$0</p><p class="text-white/30 text-xs" id="rep-nventas">0 pedidos</p></div>
+      <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Personas</p><p class="stat-num text-blue-300" id="rep-personas">0</p><p class="text-white/30 text-xs">clientes</p></div>
       <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Costo productos (COGS)</p><p class="stat-num text-orange-400" id="rep-cogs">$0</p></div>
       <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Gastos</p><p class="stat-num text-red-400" id="rep-gastos">$0</p></div>
       <div class="card p-4 border-2" style="border-color:rgba(245,196,0,.4)"><p class="text-white/40 text-xs uppercase tracking-wider">Ganancia neta</p><p class="stat-num" id="rep-ganancia">$0</p><p class="text-white/30 text-xs" id="rep-margen">Margen 0%</p></div>
@@ -185,12 +214,16 @@ tr.low td{background:rgba(239,68,68,.08)}
         <div id="rep-metodos"></div>
       </div>
     </div>
+    <div class="card p-4 mb-5">
+      <h3 class="font-semibold mb-3 text-white/70">Clientes por día</h3>
+      <div id="rep-personas-dia"></div>
+    </div>
     </div>
 
     <div class="card p-4">
       <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
         <h3 class="font-semibold text-white/70">Gastos registrados</h3>
-        <button class="btn btn-gold" onclick="openGastoModal()"><i class="fas fa-plus"></i> Registrar gasto</button>
+        <span class="text-white/30 text-xs">Se registran desde la pestaña <b>Caja</b></span>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
@@ -264,6 +297,7 @@ tr.low td{background:rgba(239,68,68,.08)}
       <input class="inp mt-1" id="pay-cash" type="number" step="any" placeholder="0" oninput="calcChange()">
       <p class="text-right mt-2 text-sm">Cambio: <span class="gold font-bold" id="pay-change">$0</span></p>
     </div>
+    <label class="flex items-center gap-2 mt-3 text-sm text-white/70"><input type="checkbox" id="pay-wa"> <i class="fab fa-whatsapp text-green-400"></i> Enviar ticket en PDF (WhatsApp)</label>
     <div class="flex gap-2 mt-5">
       <button class="btn btn-ghost flex-1" onclick="closeModal('payModal')">Cancelar</button>
       <button class="btn btn-green flex-1" onclick="confirmPay()"><i class="fas fa-check"></i> Cobrar</button>
@@ -291,6 +325,38 @@ tr.low td{background:rgba(239,68,68,.08)}
     <div class="flex gap-2 mt-5">
       <button class="btn btn-ghost flex-1" onclick="closeModal('gastoModal')">Cancelar</button>
       <button class="btn btn-gold flex-1" onclick="saveGasto()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal receta -->
+<div class="modal-bg" id="recetaModal">
+  <div class="card p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <h3 class="logo-font text-xl font-bold mb-1" id="receta-title">Receta</h3>
+    <p class="text-white/40 text-sm mb-4">Cantidad de cada insumo que lleva <b>1</b> platillo. Deja en blanco o 0 los que no usa.</p>
+    <input type="hidden" id="receta-slug">
+    <input type="hidden" id="receta-product">
+    <div id="receta-ings" class="space-y-1"></div>
+    <div class="flex gap-2 mt-5">
+      <button class="btn btn-ghost flex-1" onclick="closeModal('recetaModal')">Cancelar</button>
+      <button class="btn btn-gold flex-1" onclick="saveReceta()"><i class="fas fa-floppy-disk"></i> Guardar receta</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal login dueño -->
+<div class="modal-bg" id="loginModal">
+  <div class="card p-6 w-full max-w-sm">
+    <h3 class="logo-font text-xl font-bold mb-1"><i class="fas fa-lock gold"></i> Acceso del dueño</h3>
+    <p class="text-white/40 text-sm mb-4">Costos y Reportes son solo para administración.</p>
+    <div class="space-y-3">
+      <div><label class="text-xs text-white/50">Usuario</label><input class="inp mt-1" id="login-user" autocomplete="off"></div>
+      <div><label class="text-xs text-white/50">Contraseña</label><input class="inp mt-1" id="login-pass" type="password" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    </div>
+    <p id="login-err" class="text-red-400 text-sm mt-2 hidden">Usuario o contraseña incorrectos.</p>
+    <div class="flex gap-2 mt-5">
+      <button class="btn btn-ghost flex-1" onclick="closeModal('loginModal')">Cancelar</button>
+      <button class="btn btn-gold flex-1" onclick="doLogin()"><i class="fas fa-right-to-bracket"></i> Entrar</button>
     </div>
   </div>
 </div>
@@ -337,13 +403,18 @@ const SECTION_TITLES={alimentos:"Alimentos",desayunos:"Desayunos","pan-salado":"
 
 /* ============ Datos en tiempo real (Firebase) ============ */
 // Cachés locales que se llenan con los listeners de Firebase (ver setupListeners abajo).
-let ordersCache={}, invCache={}, costsCache={}, expCache={};
+let ordersCache={}, invCache={}, costsCache={}, expCache={}, recipesCache={};
+let invView='insumos';
 function getOrders(){return Object.values(ordersCache);}
 function getInv(){return Object.values(invCache);}
 function getExp(){return Object.values(expCache);}
 function getCosts(){return costsCache;}
 const money=n=>'$'+ (Math.round((+n||0)*100)/100).toLocaleString('es-MX');
 const uid=()=>Date.now()+Math.floor(Math.random()*1000);
+const norm=s=>(s||'').toString().trim().toLowerCase();
+const itemLabel=i=>i.name+(i.size?' ('+i.size+')':'');
+const ea=s=>(s||'').toString().replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+const slugify=s=>(s||'').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'-');
 
 /* ============ Toast + sonido ============ */
 function showToast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);}
@@ -358,10 +429,39 @@ function beep(){
   }catch(e){}
 }
 
+/* ============ Acceso del dueño (Costos y Reportes) ============ */
+const OWNER={user:'marce',pass:'shellsmarce1'};
+const PROTECTED=['costos','reportes'];
+let ownerAuth=false;
+try{ownerAuth=sessionStorage.getItem('shellsOwnerAuth')==='1';}catch(e){}
+let pendingTab=null;
+window.doLogin=function(){
+  const u=document.getElementById('login-user').value.trim();
+  const p=document.getElementById('login-pass').value;
+  if(u===OWNER.user&&p===OWNER.pass){
+    ownerAuth=true;try{sessionStorage.setItem('shellsOwnerAuth','1');}catch(e){}
+    document.getElementById('login-err').classList.add('hidden');
+    document.getElementById('login-user').value='';document.getElementById('login-pass').value='';
+    closeModal('loginModal');
+    const t=pendingTab||'reportes';pendingTab=null;switchTab(t);
+  }else{document.getElementById('login-err').classList.remove('hidden');}
+};
+window.logoutOwner=function(){
+  ownerAuth=false;try{sessionStorage.removeItem('shellsOwnerAuth');}catch(e){}
+  switchTab('cocina');showToast('Sesión cerrada');
+};
+
 /* ============ Tabs ============ */
 let activeTab='cocina';
 document.querySelectorAll('.tab-btn').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
 function switchTab(t){
+  if(PROTECTED.includes(t)&&!ownerAuth){
+    pendingTab=t;
+    document.getElementById('login-err').classList.add('hidden');
+    openModal('loginModal');
+    setTimeout(()=>{var el=document.getElementById('login-user');if(el)el.focus();},100);
+    return;
+  }
   activeTab=t;
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));
   ['cocina','caja','inventario','costos','reportes'].forEach(s=>document.getElementById('tab-'+s).classList.toggle('hidden',s!==t));
@@ -390,7 +490,7 @@ function renderCocina(){
   const grid=document.getElementById('cocina-grid');
   document.getElementById('cocina-empty').classList.toggle('hidden',orders.length>0);
   grid.innerHTML=orders.map(o=>{
-    const itemsHtml=o.items.map(i=>`<div class="flex justify-between py-1 border-b border-white/5"><span><span class="gold font-bold">${i.qty}×</span> ${i.name}${i.size?` <span class="gold" style="font-size:.78rem">(${i.size})</span>`:''}</span></div>`).join('');
+    const itemsHtml=o.items.map(i=>`<div class="flex justify-between py-1 border-b border-white/5"><span><span class="gold font-bold">${i.qty}×</span> ${i.name}${i.size?` <span class="text-white/40">(${i.size})</span>`:''}</span></div>`).join('');
     const next=o.status==='nuevo'?`<button class="btn btn-gold flex-1" onclick="setStatus(${o.id},'preparando')"><i class="fas fa-fire"></i> Preparar</button>`
       :o.status==='preparando'?`<button class="btn btn-green flex-1" onclick="setStatus(${o.id},'listo')"><i class="fas fa-check"></i> Marcar listo</button>`
       :`<span class="btn flex-1" style="background:rgba(34,197,94,.15);color:#86efac;cursor:default"><i class="fas fa-bell"></i> Listo · esperando caja</span>`;
@@ -425,31 +525,40 @@ function renderCaja(){
       <div class="flex items-center justify-between mb-2">
         <span class="font-bold">${o.table||'Sin mesa'}</span><span class="tag tag-${o.status}">${o.status}</span>
       </div>
-      <p class="text-white/40 text-xs mb-2">#${String(o.id).slice(-4)} · ${o.items.reduce((s,i)=>s+i.qty,0)} art.</p>
-      <div class="text-xs text-white/60 mb-3">${o.items.map(i=>i.qty+'× '+i.name+(i.size?' ('+i.size+')':'')).join(', ')}</div>
-      <div class="flex items-center justify-between">
+      <p class="text-white/40 text-xs mb-2">#${String(o.id).slice(-4)} · ${o.items.reduce((s,i)=>s+i.qty,0)} art.${o.phone?` · <i class="fas fa-phone"></i> ${o.phone}`:''}</p>
+      <div class="text-xs text-white/60 mb-3">${o.items.map(i=>i.qty+'× '+itemLabel(i)).join(', ')}</div>
+      <div class="flex items-center justify-between mb-2">
         <span class="gold font-bold text-xl">${money(o.total)}</span>
         <button class="btn btn-green" onclick="openPay(${o.id})"><i class="fas fa-cash-register"></i> Cobrar</button>
+      </div>
+      <div class="flex gap-2">
+        <button class="btn btn-ghost flex-1" onclick="shareTicket(${o.id})"><i class="fab fa-whatsapp text-green-400"></i> Enviar PDF</button>
+        <button class="btn btn-ghost flex-1" onclick="printTicket(${o.id})"><i class="fas fa-print"></i> Imprimir</button>
       </div>
     </div>`).join('');
   // stats hoy
   const cobrados=getOrders().filter(o=>o.status==='cobrado'&&o.paidAt&&inRange(o.paidAt,'today'));
   const tot=cobrados.reduce((s,o)=>s+o.total,0);
   const efe=cobrados.filter(o=>o.paymentMethod==='efectivo').reduce((s,o)=>s+o.total,0);
+  const personasHoy=new Set(getOrders().filter(o=>o.createdAt&&inRange(o.createdAt,'today')&&o.status!=='cancelado').map(o=>norm(o.table))).size;
+  const gastosHoy=getExp().filter(e=>inRange(e.fecha,'today')).reduce((s,e)=>s+(+e.monto),0);
   document.getElementById('caja-hoy').textContent=money(tot);
   document.getElementById('caja-count').textContent=cobrados.length;
   document.getElementById('caja-efectivo').textContent=money(efe);
   document.getElementById('caja-otros').textContent=money(tot-efe);
+  document.getElementById('caja-personas').textContent=personasHoy;
+  document.getElementById('caja-gastos').textContent=money(gastosHoy);
   updateBadge('badge-caja',list.filter(o=>o.status==='listo').length);
 }
 window.openPay=function(id){
   const o=getOrders().find(x=>x.id===id);if(!o)return;
   document.getElementById('pay-id').value=id;
-  document.getElementById('pay-sub').textContent=(o.table||'Sin mesa')+' · #'+String(o.id).slice(-4);
+  document.getElementById('pay-sub').textContent=(o.table||'Sin mesa')+' · #'+String(o.id).slice(-4)+(o.phone?' · '+o.phone:'');
   document.getElementById('pay-total').textContent=money(o.total);
   document.getElementById('pay-method').value='efectivo';
   document.getElementById('pay-cash').value='';
   document.getElementById('pay-change').textContent='$0';
+  document.getElementById('pay-wa').checked=!!waNumber(o.phone);
   onPayMethod();openModal('payModal');
 };
 window.onPayMethod=function(){document.getElementById('pay-cash-wrap').classList.toggle('hidden',document.getElementById('pay-method').value!=='efectivo');};
@@ -462,84 +571,30 @@ window.confirmPay=function(){
   const id=+document.getElementById('pay-id').value;
   const method=document.getElementById('pay-method').value;
   const order=ordersCache[id];if(!order)return;
-  let cash=0,change=0;
-  if(method==='efectivo'){cash=+document.getElementById('pay-cash').value||0;
-    if(cash&&cash<order.total){if(!confirm('El efectivo es menor al total. ¿Cobrar de todos modos?'))return;}
-    change=Math.max(0,cash-order.total);}
-  const paidAt=new Date().toISOString();
-  db.ref('orders/'+id).update({status:'cobrado',paidAt,paymentMethod:method});
-  closeModal('payModal');showToast('¡Cobrado! '+money(order.total));
-  printTicket(order,method,cash,change,paidAt);
-};
-
-/* ============ TICKET / RECIBO ============ */
-const PAY_LABELS={efectivo:'Efectivo',tarjeta:'Tarjeta',transferencia:'Transferencia'};
-function escapeHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function buildTicketHTML(order,method,cash,change,paidAt){
-  const d=paidAt?new Date(paidAt):new Date();
-  const fecha=d.toLocaleDateString('es-MX')+'  '+d.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'});
-  const rows=order.items.map(i=>{
-    const nm=escapeHtml(i.name+(i.size?' ('+i.size+')':''));
-    return `<tr><td class="q">${i.qty}x</td><td class="n">${nm}</td><td class="p">${money(i.price*i.qty)}</td></tr>`;
-  }).join('');
-  let pago='';
-  if(method==='efectivo'&&cash>0){
-    pago=`<div class="row"><span>Paga con</span><span>${money(cash)}</span></div>`
-        +`<div class="row"><span>Cambio</span><span>${money(change)}</span></div>`;
+  if(method==='efectivo'){const c=+document.getElementById('pay-cash').value||0;
+    if(c&&c<order.total){if(!confirm('El efectivo es menor al total. ¿Cobrar de todos modos?'))return;}}
+  db.ref('orders/'+id).update({status:'cobrado',paidAt:new Date().toISOString(),paymentMethod:method});
+  // Descuenta el inventario: usa la receta del platillo; si no tiene receta, coincide por nombre.
+  const deduct={}; // invId -> cantidad total a restar
+  (order.items||[]).forEach(it=>{
+    const recipe=recipesCache[norm(it.name)];
+    if(recipe&&Array.isArray(recipe.items)&&recipe.items.length){
+      recipe.items.forEach(ing=>{deduct[ing.invId]=(deduct[ing.invId]||0)+(+ing.qty||0)*(+it.qty||0);});
+    }else{
+      const match=getInv().find(x=>norm(x.name)===norm(it.name));
+      if(match)deduct[match.id]=(deduct[match.id]||0)+(+it.qty||0);
+    }
+  });
+  Object.keys(deduct).forEach(invId=>{
+    const inv=invCache[invId];
+    if(inv){const ns=Math.max(0,(+inv.stock||0)-deduct[invId]);db.ref('inventory/'+invId+'/stock').set(ns);}
+  });
+  // Enviar ticket en PDF (compartir por WhatsApp en celular / descargar en escritorio).
+  if(document.getElementById('pay-wa').checked){
+    shareTicketDoc({...order,paymentMethod:method,paidAt:new Date().toISOString()});
   }
-  // Las etiquetas de estilo y titulo del ticket se arman partidas a proposito
-  // (por ejemplo '<sty'+'le>') para que ningun editor o preview (VS Code, Live
-  // Server, etc.) las confunda con el fin del bloque de codigo de la pagina y
-  // termine mostrando el codigo como texto.
-  const css=
-    "*{margin:0;padding:0;box-sizing:border-box}"+
-    "body{font-family:'Courier New',monospace;color:#000;background:#fff;padding:10px;width:280px}"+
-    ".c{text-align:center}"+
-    ".name{font-size:20px;font-weight:bold;letter-spacing:2px}"+
-    ".sub{font-size:11px;margin-top:2px}"+
-    ".hr{border-top:1px dashed #000;margin:8px 0}"+
-    "table{width:100%;font-size:12px;border-collapse:collapse}"+
-    "td{padding:2px 0;vertical-align:top}"+
-    "td.q{width:30px}"+
-    "td.p{text-align:right;white-space:nowrap;width:62px}"+
-    ".row{display:flex;justify-content:space-between;font-size:12px;margin:3px 0}"+
-    ".total{font-size:15px;font-weight:bold}"+
-    ".foot{font-size:11px;margin-top:10px}"+
-    "@media print{body{width:auto;padding:0}}";
-  const styleTag='<sty'+'le>'+css+'</sty'+'le>';
-  const titleTag='<tit'+'le>Ticket Shell\'s Bread</tit'+'le>';
-  const body=`
-    <div class="c"><div class="name">SHELL'S BREAD</div><div class="sub">Panadería &amp; Cafetería</div></div>
-    <div class="hr"></div>
-    <div class="row"><span>Fecha</span><span>${fecha}</span></div>
-    <div class="row"><span>Ticket</span><span>#${String(order.id).slice(-4)}</span></div>
-    <div class="row"><span>Mesa/Nombre</span><span>${escapeHtml(order.table||'—')}</span></div>
-    <div class="hr"></div>
-    <table>${rows}</table>
-    <div class="hr"></div>
-    <div class="row total"><span>TOTAL</span><span>${money(order.total)}</span></div>
-    <div class="row"><span>Método de pago</span><span>${PAY_LABELS[method]||method}</span></div>
-    ${pago}
-    <div class="hr"></div>
-    <div class="c foot">¡Gracias por su compra!<br>Vuelva pronto 🍞</div>`;
-  return '<!DOCTYPE html><html><head><meta charset="utf-8">'+titleTag+styleTag+'</head><body>'+body+'</bo'+'dy></ht'+'ml>';
-}
-function printTicket(order,method,cash,change,paidAt){
-  try{
-    const html=buildTicketHTML(order,method,cash,change,paidAt);
-    const iframe=document.createElement('iframe');
-    iframe.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
-    document.body.appendChild(iframe);
-    let done=false;
-    const go=()=>{if(done)return;done=true;
-      try{iframe.contentWindow.focus();iframe.contentWindow.print();}catch(e){console.error('print',e);}
-      setTimeout(()=>{iframe.parentNode&&iframe.parentNode.removeChild(iframe);},1500);};
-    iframe.onload=()=>setTimeout(go,80);
-    const doc=iframe.contentWindow.document;
-    doc.open();doc.write(html);doc.close();
-    setTimeout(go,400); // respaldo por si onload no dispara
-  }catch(e){console.error('printTicket',e);}
-}
+  closeModal('payModal');showToast('¡Cobrado! '+money(order.total));
+};
 function corteCaja(){
   const c=getOrders().filter(o=>o.status==='cobrado'&&o.paidAt&&inRange(o.paidAt,'today'));
   const tot=c.reduce((s,o)=>s+o.total,0);
@@ -548,6 +603,83 @@ function corteCaja(){
   const tra=c.filter(o=>o.paymentMethod==='transferencia').reduce((s,o)=>s+o.total,0);
   alert(`CORTE DE CAJA — ${new Date().toLocaleDateString('es-MX')}\n\nPedidos cobrados: ${c.length}\nEfectivo: ${money(efe)}\nTarjeta: ${money(tar)}\nTransferencia: ${money(tra)}\n────────────────\nTOTAL: ${money(tot)}`);
 }
+
+/* ============ TICKET: WhatsApp e impresión ============ */
+function waNumber(phone){
+  let d=(phone||'').toString().replace(/\D/g,'');
+  if(!d)return '';
+  if(d.length===10)d='52'+d;        // agrega lada de México a los 10 dígitos
+  return d;
+}
+function buildTicketDoc(o){
+  const { jsPDF }=window.jspdf;
+  const doc=new jsPDF({unit:'mm',format:[80,200]});  // rollo de 80 mm
+  const cx=40;let y=9;
+  doc.setFont('courier','bold');doc.setFontSize(13);
+  doc.text("Shell's Bread",cx,y,{align:'center'});y+=6;
+  doc.setFont('courier','normal');doc.setFontSize(9);
+  doc.text('Ticket #'+String(o.id).slice(-4),cx,y,{align:'center'});y+=4;
+  doc.text(new Date(o.paidAt||o.createdAt||Date.now()).toLocaleString('es-MX'),cx,y,{align:'center'});y+=4;
+  if(o.table){doc.text('Cliente: '+o.table,cx,y,{align:'center'});y+=4;}
+  if(o.phone){doc.text('Tel: '+o.phone,cx,y,{align:'center'});y+=4;}
+  doc.text('------------------------------',cx,y,{align:'center'});y+=4;
+  (o.items||[]).forEach(i=>{
+    const lines=doc.splitTextToSize(`${i.qty}x ${itemLabel(i)}`,54);
+    doc.text(lines,4,y);
+    doc.text(money(i.price*i.qty),76,y,{align:'right'});
+    y+=4*lines.length;
+  });
+  doc.text('------------------------------',cx,y,{align:'center'});y+=5;
+  doc.setFont('courier','bold');doc.setFontSize(12);
+  doc.text('TOTAL',4,y);doc.text(money(o.total),76,y,{align:'right'});y+=6;
+  doc.setFont('courier','normal');doc.setFontSize(9);
+  if(o.paymentMethod){doc.text('Pago: '+o.paymentMethod,cx,y,{align:'center'});y+=4;}
+  doc.text('¡Gracias por tu compra!',cx,y,{align:'center'});
+  return doc;
+}
+async function shareTicketDoc(o){
+  let doc;
+  try{doc=buildTicketDoc(o);}catch(e){console.error(e);showToast('No se pudo generar el PDF');return;}
+  const fname='ticket-'+String(o.id).slice(-4)+'.pdf';
+  const blob=doc.output('blob');
+  const file=new File([blob],fname,{type:'application/pdf'});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{await navigator.share({files:[file],title:'Ticket Shell\'s Bread',text:'Aquí está tu ticket 🧾'});}
+    catch(e){/* el usuario canceló el compartir */}
+  }else{
+    doc.save(fname);                         // escritorio: descarga el PDF
+    const num=waNumber(o.phone);
+    if(num){window.open('https://wa.me/'+num,'_blank');showToast('PDF descargado: adjúntalo en el chat');}
+    else showToast('PDF descargado');
+  }
+}
+window.shareTicket=function(id){const o=ordersCache[id];if(!o)return;shareTicketDoc(o);};
+function ticketHTML(o){
+  const rows=(o.items||[]).map(i=>`<tr><td>${i.qty}x ${itemLabel(i)}</td><td style="text-align:right">${money(i.price*i.qty)}</td></tr>`).join('');
+  return `<html><head><meta charset="utf-8"><title>Ticket #${String(o.id).slice(-4)}</title><style>
+    *{font-family:'Courier New',monospace}body{width:280px;margin:0 auto;padding:10px;color:#000}
+    h2{text-align:center;margin:4px 0}p{margin:2px 0;text-align:center;font-size:12px}
+    table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}td{padding:2px 0;vertical-align:top}
+    .hr{border-top:1px dashed #000;margin:6px 0}.tot{display:flex;justify-content:space-between;font-weight:bold;font-size:15px}
+  </style></head><body onload="window.print()">
+    <h2>Shell's Bread</h2>
+    <p>Ticket #${String(o.id).slice(-4)}</p>
+    <p>${new Date(o.paidAt||o.createdAt||Date.now()).toLocaleString('es-MX')}</p>
+    ${o.table?`<p>Cliente: ${o.table}</p>`:''}${o.phone?`<p>Tel: ${o.phone}</p>`:''}
+    <div class="hr"></div>
+    <table>${rows}</table>
+    <div class="hr"></div>
+    <div class="tot"><span>TOTAL</span><span>${money(o.total)}</span></div>
+    ${o.paymentMethod?`<p>Pago: ${o.paymentMethod}</p>`:''}
+    <p>¡Gracias por tu compra!</p>
+  </body></html>`;
+}
+window.printTicket=function(id){
+  const o=ordersCache[id];if(!o)return;
+  const w=window.open('','_blank','width=320,height=600');
+  if(!w){showToast('Permite ventanas emergentes para imprimir');return;}
+  w.document.write(ticketHTML(o));w.document.close();
+};
 
 /* ============ INVENTARIO ============ */
 function renderInv(){
@@ -565,8 +697,7 @@ function renderInv(){
       <td class="p-3 text-right">${money(it.cost||0)}</td>
       <td class="p-3 text-right gold">${money(v)}</td>
       <td class="p-3"><div class="flex gap-1 justify-center">
-        <button class="btn btn-green" style="padding:.35rem .55rem" onclick="openMove(${it.id},'in')" title="Entrada"><i class="fas fa-plus"></i></button>
-        <button class="btn btn-red" style="padding:.35rem .55rem" onclick="openMove(${it.id},'out')" title="Salida"><i class="fas fa-minus"></i></button>
+        <button class="btn btn-green" style="padding:.35rem .55rem" onclick="openMove(${it.id},'in')" title="Agregar stock"><i class="fas fa-plus"></i></button>
         <button class="btn btn-ghost" style="padding:.35rem .55rem" onclick="editInv(${it.id})" title="Editar"><i class="fas fa-pen"></i></button>
         <button class="btn btn-ghost" style="padding:.35rem .55rem" onclick="delInv(${it.id})" title="Eliminar"><i class="fas fa-trash"></i></button>
       </div></td></tr>`;
@@ -626,6 +757,63 @@ window.applyMove=function(){
   closeModal('moveModal');showToast('Stock actualizado');
 };
 
+/* ============ RECETAS ============ */
+window.invSub=function(view){
+  invView=(view==='recetas')?'recetas':'insumos';
+  const insumos=invView==='insumos';
+  document.getElementById('inv-view-insumos').classList.toggle('hidden',!insumos);
+  document.getElementById('inv-view-recetas').classList.toggle('hidden',insumos);
+  document.getElementById('subtab-insumos').className='btn '+(insumos?'btn-gold':'btn-ghost');
+  document.getElementById('subtab-recetas').className='btn '+(insumos?'btn-ghost':'btn-gold');
+  if(insumos)renderInv(); else renderRecetas();
+};
+function recipeSummary(product,invById){
+  const r=recipesCache[norm(product)];
+  if(!r||!Array.isArray(r.items)||!r.items.length)return '<span class="text-white/30">Sin receta</span>';
+  return r.items.map(x=>{const iv=invById[x.invId];return iv?`${x.qty} ${iv.unit||''} ${iv.name}`:`${x.qty} (insumo eliminado)`;}).join(' · ');
+}
+function renderRecetas(){
+  const inv=getInv();const invById={};inv.forEach(i=>invById[i.id]=i);
+  const cont=document.getElementById('recetas-list');
+  cont.innerHTML=Object.keys(MENU_DATA).map(cat=>`
+    <div class="card p-4">
+      <h3 class="logo-font text-lg font-bold mb-3 gold">${SECTION_TITLES[cat]}</h3>
+      <div class="space-y-1">
+        ${MENU_DATA[cat].map(p=>`<div class="flex items-center justify-between gap-3 py-1.5 border-b border-white/5">
+          <div class="flex-1 min-w-0"><p class="text-sm">${p.name}</p><p class="text-xs text-white/40 truncate">${recipeSummary(p.name,invById)}</p></div>
+          <button class="btn btn-ghost flex-shrink-0" onclick="openReceta('${ea(p.name)}')"><i class="fas fa-pen"></i> Editar receta</button>
+        </div>`).join('')}
+      </div>
+    </div>`).join('');
+}
+window.openReceta=function(product){
+  const inv=getInv();
+  const recipe=recipesCache[norm(product)];
+  const qtyOf=id=>{if(!recipe||!Array.isArray(recipe.items))return '';const f=recipe.items.find(x=>String(x.invId)===String(id));return f?f.qty:'';};
+  document.getElementById('receta-title').textContent='Receta · '+product;
+  document.getElementById('receta-slug').value=slugify(product);
+  document.getElementById('receta-product').value=product;
+  const cont=document.getElementById('receta-ings');
+  if(!inv.length){
+    cont.innerHTML='<p class="text-white/40 text-sm py-6 text-center">Primero agrega insumos en la pestaña <b>Insumos</b>.</p>';
+  }else{
+    cont.innerHTML=inv.map(it=>`<div class="flex items-center gap-3 py-1.5 border-b border-white/5">
+      <div class="flex-1 min-w-0"><p class="text-sm truncate">${it.name}</p><p class="text-xs text-white/40">Stock ${it.stock} ${it.unit||''}</p></div>
+      <input class="inp receta-inp" style="width:90px;padding:.35rem .5rem" type="number" step="any" min="0" data-inv="${it.id}" value="${qtyOf(it.id)}" placeholder="0">
+      <span class="text-white/40 text-xs w-10 text-left">${it.unit||''}</span>
+    </div>`).join('');
+  }
+  openModal('recetaModal');
+};
+window.saveReceta=function(){
+  const slug=document.getElementById('receta-slug').value;
+  const product=document.getElementById('receta-product').value;
+  const items=[];
+  document.querySelectorAll('#receta-ings .receta-inp').forEach(i=>{const q=+i.value||0;if(q>0)items.push({invId:+i.dataset.inv,qty:q});});
+  db.ref('recipes/'+slug).set({product,items});
+  closeModal('recetaModal');showToast('Receta guardada ✓');
+};
+
 /* ============ COSTOS ============ */
 function renderCostos(){
   const costs=getCosts();const cont=document.getElementById('costos-list');
@@ -679,6 +867,16 @@ function renderReportes(){
   const g=document.getElementById('rep-ganancia');g.textContent=money(ganancia);
   g.className='stat-num '+(ganancia>=0?'text-green-400':'text-red-400');
   document.getElementById('rep-margen').textContent='Margen '+margen+'%';
+  // personas (clientes distintos que compraron en el periodo)
+  document.getElementById('rep-personas').textContent=new Set(sales.map(o=>norm(o.table))).size;
+  // clientes por día
+  const byDay={};
+  sales.forEach(o=>{const d=new Date(o.paidAt).toLocaleDateString('es-MX');(byDay[d]=byDay[d]||new Set()).add(norm(o.table));});
+  const days=Object.entries(byDay).sort((a,b)=>new Date(b[0].split('/').reverse().join('-'))-new Date(a[0].split('/').reverse().join('-')));
+  const maxd=days.length?Math.max(...days.map(d=>d[1].size)):1;
+  document.getElementById('rep-personas-dia').innerHTML=days.length?days.map(([d,set])=>`
+    <div class="mb-2"><div class="flex justify-between text-sm mb-1"><span>${d}</span><span class="font-semibold text-blue-300">${set.size} ${set.size===1?'persona':'personas'}</span></div>
+    <div class="h-1.5 bg-white/10 rounded-full"><div class="h-1.5 rounded-full" style="width:${set.size/maxd*100}%;background:#93c5fd"></div></div></div>`).join(''):'<p class="text-white/30 text-sm py-4 text-center">Sin clientes en este periodo.</p>';
   // top productos
   const top=Object.entries(prod).sort((a,b)=>b[1]-a[1]).slice(0,8);
   const maxv=top.length?top[0][1]:1;
@@ -723,7 +921,7 @@ function updateBadge(id,n){const b=document.getElementById(id);if(!b)return;b.te
 function renderAll(){
   if(activeTab==='cocina')renderCocina();
   else if(activeTab==='caja')renderCaja();
-  else if(activeTab==='inventario')renderInv();
+  else if(activeTab==='inventario'){renderInv();if(invView==='recetas')renderRecetas();}
   else if(activeTab==='costos')renderCostos();
   else if(activeTab==='reportes')renderReportes();
   // badges siempre actualizados aunque no esté la pestaña activa
@@ -747,6 +945,11 @@ function setupListeners(){
   db.ref('productCosts').on('value',s=>{
     const v=s.val()||[];costsCache={};
     (Array.isArray(v)?v:Object.values(v)).forEach(c=>{if(c&&c.name)costsCache[c.name]=+c.cost;});
+    renderAll();
+  });
+  db.ref('recipes').on('value',s=>{
+    const v=s.val()||{};recipesCache={};
+    Object.values(v).forEach(r=>{if(r&&r.product)recipesCache[norm(r.product)]=r;});
     renderAll();
   });
 }
