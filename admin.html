@@ -394,14 +394,14 @@ tr.low td{background:rgba(239,68,68,.08)}
 <div class="modal-bg" id="loginModal">
   <div class="card p-6 w-full max-w-sm">
     <h3 class="logo-font text-xl font-bold mb-1"><i class="fas fa-lock gold"></i> Acceso del dueño</h3>
-    <p class="text-white/40 text-sm mb-4">Costos y Reportes son solo para administración.</p>
+    <p class="text-white/40 text-sm mb-4">Requiere usuario y contraseña del dueño.</p>
     <div class="space-y-3">
       <div><label class="text-xs text-white/50">Usuario</label><input class="inp mt-1" id="login-user" autocomplete="off"></div>
       <div><label class="text-xs text-white/50">Contraseña</label><input class="inp mt-1" id="login-pass" type="password" onkeydown="if(event.key==='Enter')doLogin()"></div>
     </div>
     <p id="login-err" class="text-red-400 text-sm mt-2 hidden">Usuario o contraseña incorrectos.</p>
     <div class="flex gap-2 mt-5">
-      <button class="btn btn-ghost flex-1" onclick="closeModal('loginModal')">Cancelar</button>
+      <button class="btn btn-ghost flex-1" onclick="cancelLogin()">Cancelar</button>
       <button class="btn btn-gold flex-1" onclick="doLogin()"><i class="fas fa-right-to-bracket"></i> Entrar</button>
     </div>
   </div>
@@ -456,9 +456,9 @@ const SECTION_TITLES={alimentos:"Alimentos",desayunos:"Desayunos","pan-salado":"
 let ordersCache={}, invCache={}, costsCache={}, expCache={}, recipesCache={};
 let cashFloatCache=0;
 let invView='insumos';
-function getOrders(){return Object.values(ordersCache);}
-function getInv(){return Object.values(invCache);}
-function getExp(){return Object.values(expCache);}
+function getOrders(){return Object.values(ordersCache).filter(Boolean);}
+function getInv(){return Object.values(invCache).filter(Boolean);}
+function getExp(){return Object.values(expCache).filter(Boolean);}
 function getCosts(){return costsCache;}
 const money=n=>'$'+ (Math.round((+n||0)*100)/100).toLocaleString('es-MX');
 const uid=()=>Date.now()+Math.floor(Math.random()*1000);
@@ -467,6 +467,13 @@ const itemLabel=i=>i.name+(i.size?' ('+i.size+')':'');
 const ea=s=>(s||'').toString().replace(/\\/g,'\\\\').replace(/'/g,"\\'");
 const slugify=s=>(s||'').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'-');
 const sizeName=s=>s.label.split('$')[0].trim();
+// ===== Fechas y hora en zona de Torreón, Coahuila (12h) =====
+const TZ='America/Monterrey';
+const tzDateStr=d=>new Intl.DateTimeFormat('en-CA',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).format(d||new Date());
+const todayStr=()=>tzDateStr(new Date());
+function dayStr(v){if(!v)return '';const s=String(v);if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;const d=new Date(s);return isNaN(d)?'':tzDateStr(d);}
+function fmtDateTime(v){const d=v?new Date(v):new Date();return new Intl.DateTimeFormat('es-MX',{timeZone:TZ,day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}).format(d);}
+function fmtTime(){return new Intl.DateTimeFormat('es-MX',{timeZone:TZ,hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}).format(new Date());}
 
 /* ============ Toast + sonido ============ */
 function showToast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);}
@@ -486,23 +493,34 @@ const OWNER={user:'marce',pass:'shellsmarce1'};
 const PROTECTED=['costos','reportes'];
 let ownerAuth=false;
 try{ownerAuth=sessionStorage.getItem('shellsOwnerAuth')==='1';}catch(e){}
-let pendingTab=null, pendingAction=null;
-// Ejecuta fn si el dueño ya inició sesión; si no, pide login y luego la ejecuta.
-function ensureOwner(fn){
-  if(ownerAuth){fn();return;}
-  pendingAction=fn;
+let pendingTab=null, pendingAction=null, authAction=null;
+function openLogin(){
   document.getElementById('login-err').classList.add('hidden');
+  document.getElementById('login-pass').value='';
   openModal('loginModal');
   setTimeout(()=>{var el=document.getElementById('login-user');if(el)el.focus();},100);
 }
+// Sesión: pide la contraseña una vez (para Costos/Reportes y para agregar insumos).
+function ensureOwner(fn){
+  if(ownerAuth){fn();return;}
+  pendingAction=fn; authAction=null; pendingTab=null;
+  openLogin();
+}
+// Autorización: pide la contraseña SIEMPRE (para editar/eliminar insumos), aunque haya sesión.
+function authorize(fn){
+  authAction=fn; pendingAction=null; pendingTab=null;
+  openLogin();
+}
+window.cancelLogin=function(){authAction=null;pendingAction=null;pendingTab=null;closeModal('loginModal');};
 window.doLogin=function(){
   const u=document.getElementById('login-user').value.trim();
   const p=document.getElementById('login-pass').value;
   if(u===OWNER.user&&p===OWNER.pass){
-    ownerAuth=true;try{sessionStorage.setItem('shellsOwnerAuth','1');}catch(e){}
     document.getElementById('login-err').classList.add('hidden');
     document.getElementById('login-user').value='';document.getElementById('login-pass').value='';
     closeModal('loginModal');
+    if(authAction){const a=authAction;authAction=null;a();return;}   // no deja sesión abierta
+    ownerAuth=true;try{sessionStorage.setItem('shellsOwnerAuth','1');}catch(e){}
     if(pendingAction){const a=pendingAction;pendingAction=null;a();}
     else{const t=pendingTab||'reportes';pendingTab=null;switchTab(t);}
   }else{document.getElementById('login-err').classList.remove('hidden');}
@@ -517,10 +535,8 @@ let activeTab='cocina';
 document.querySelectorAll('.tab-btn').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
 function switchTab(t){
   if(PROTECTED.includes(t)&&!ownerAuth){
-    pendingTab=t;
-    document.getElementById('login-err').classList.add('hidden');
-    openModal('loginModal');
-    setTimeout(()=>{var el=document.getElementById('login-user');if(el)el.focus();},100);
+    pendingTab=t; pendingAction=null; authAction=null;
+    openLogin();
     return;
   }
   activeTab=t;
@@ -529,13 +545,14 @@ function switchTab(t){
   renderAll();
 }
 
-/* ============ Fechas ============ */
-function inRange(iso,range){
-  const d=new Date(iso),now=new Date();
+/* ============ Fechas (zona de Torreón) ============ */
+function inRange(v,range){
   if(range==='all')return true;
-  if(range==='today')return d.toDateString()===now.toDateString();
-  if(range==='week'){const w=new Date();w.setDate(w.getDate()-7);return d>=w;}
-  if(range==='month')return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();
+  const day=dayStr(v);if(!day)return false;
+  const today=todayStr();
+  if(range==='today')return day===today;
+  if(range==='month')return day.slice(0,7)===today.slice(0,7);
+  if(range==='week'){const wa=tzDateStr(new Date(Date.now()-6*86400000));return day>=wa&&day<=today;}
   return true;
 }
 function elapsed(iso){
@@ -665,7 +682,7 @@ function corteCaja(){
   const tar=c.filter(o=>o.paymentMethod==='tarjeta').reduce((s,o)=>s+o.total,0);
   const tra=c.filter(o=>o.paymentMethod==='transferencia').reduce((s,o)=>s+o.total,0);
   const gas=getExp().filter(e=>inRange(e.fecha,'today')).reduce((s,e)=>s+(+e.monto),0);
-  alert(`CORTE DE CAJA — ${new Date().toLocaleDateString('es-MX')}\n\nPedidos cobrados: ${c.length}\nEfectivo (ventas): ${money(efe)}\nTarjeta: ${money(tar)}\nTransferencia: ${money(tra)}\nGastos del día: ${money(gas)}\n────────────────\nVENTA TOTAL: ${money(tot)}\n\nFondo inicial: ${money(cashFloatCache)}\nEfectivo esperado en cajón: ${money(cashFloatCache+efe)}\n(fondo + efectivo de ventas)`);
+  alert(`CORTE DE CAJA — ${todayStr().split('-').reverse().join('/')}\n\nPedidos cobrados: ${c.length}\nEfectivo (ventas): ${money(efe)}\nTarjeta: ${money(tar)}\nTransferencia: ${money(tra)}\nGastos del día: ${money(gas)}\n────────────────\nVENTA TOTAL: ${money(tot)}\n\nFondo inicial: ${money(cashFloatCache)}\nEfectivo esperado en cajón: ${money(cashFloatCache+efe)}\n(fondo + efectivo de ventas)`);
 }
 window.openFondo=function(){
   document.getElementById('fondo-input').value=cashFloatCache||'';
@@ -692,7 +709,7 @@ function buildTicketDoc(o){
   doc.text("Shell's Bread",cx,y,{align:'center'});y+=6;
   doc.setFont('courier','normal');doc.setFontSize(9);
   doc.text('Ticket #'+String(o.id).slice(-4),cx,y,{align:'center'});y+=4;
-  doc.text(new Date(o.paidAt||o.createdAt||Date.now()).toLocaleString('es-MX'),cx,y,{align:'center'});y+=4;
+  doc.text(fmtDateTime(o.paidAt||o.createdAt),cx,y,{align:'center'});y+=4;
   if(o.table){doc.text('Cliente: '+o.table,cx,y,{align:'center'});y+=4;}
   if(o.phone){doc.text('Tel: '+o.phone,cx,y,{align:'center'});y+=4;}
   doc.text('------------------------------',cx,y,{align:'center'});y+=4;
@@ -737,7 +754,7 @@ function ticketHTML(o){
   </style></head><body onload="window.print()">
     <h2>Shell's Bread</h2>
     <p>Ticket #${String(o.id).slice(-4)}</p>
-    <p>${new Date(o.paidAt||o.createdAt||Date.now()).toLocaleString('es-MX')}</p>
+    <p>${fmtDateTime(o.paidAt||o.createdAt)}</p>
     ${o.table?`<p>Cliente: ${o.table}</p>`:''}${o.phone?`<p>Tel: ${o.phone}</p>`:''}
     <div class="hr"></div>
     <table>${rows}</table>
@@ -841,7 +858,7 @@ window.openInvModal=function(){ ensureOwner(()=>{
   ['inv-id','inv-name','inv-stock','inv-unit','inv-min','inv-cost'].forEach(i=>document.getElementById(i).value='');
   openModal('invModal');
 });};
-window.editInv=function(id){ ensureOwner(()=>{
+window.editInv=function(id){ authorize(()=>{
   const it=getInv().find(x=>x.id===id);if(!it)return;
   document.getElementById('invModalTitle').textContent='Editar insumo';
   document.getElementById('inv-id').value=it.id;document.getElementById('inv-name').value=it.name;
@@ -858,7 +875,7 @@ window.saveInv=function(){
   db.ref('inventory/'+id).set({id,...obj});
   closeModal('invModal');showToast('Insumo guardado');
 };
-window.delInv=function(id){ ensureOwner(()=>{if(!confirm('¿Eliminar este insumo?'))return;db.ref('inventory/'+id).remove();});};
+window.delInv=function(id){ authorize(()=>{if(!confirm('¿Eliminar este insumo?'))return;db.ref('inventory/'+id).remove();});};
 let moveMode='in';
 window.openMove=function(id,mode){ ensureOwner(()=>{
   moveMode=mode;const it=getInv().find(x=>x.id===id);if(!it)return;
@@ -879,7 +896,7 @@ window.applyMove=function(){
     newStock=(+it.stock)+q;
     if(document.getElementById('move-expense').checked){
       const monto=q*(+it.cost||0);
-      if(monto>0){const eid=uid();db.ref('expenses/'+eid).set({id:eid,concepto:'Compra: '+it.name+' ('+q+' '+(it.unit||'')+')',monto,categoria:'Insumos',fecha:new Date().toISOString().slice(0,10)});}
+      if(monto>0){const eid=uid();db.ref('expenses/'+eid).set({id:eid,concepto:'Compra: '+it.name+' ('+q+' '+(it.unit||'')+')',monto,categoria:'Insumos',fecha:todayStr()});}
     }
   }else newStock=Math.max(0,(+it.stock)-q);
   db.ref('inventory/'+id+'/stock').set(newStock);
@@ -1000,11 +1017,11 @@ function renderReportes(){
   document.getElementById('rep-personas').textContent=new Set(sales.map(o=>norm(o.table))).size;
   // clientes por día
   const byDay={};
-  sales.forEach(o=>{const d=new Date(o.paidAt).toLocaleDateString('es-MX');(byDay[d]=byDay[d]||new Set()).add(norm(o.table));});
-  const days=Object.entries(byDay).sort((a,b)=>new Date(b[0].split('/').reverse().join('-'))-new Date(a[0].split('/').reverse().join('-')));
+  sales.forEach(o=>{const d=dayStr(o.paidAt);if(!d)return;(byDay[d]=byDay[d]||new Set()).add(norm(o.table));});
+  const days=Object.entries(byDay).sort((a,b)=>b[0]<a[0]?-1:1);
   const maxd=days.length?Math.max(...days.map(d=>d[1].size)):1;
   document.getElementById('rep-personas-dia').innerHTML=days.length?days.map(([d,set])=>`
-    <div class="mb-2"><div class="flex justify-between text-sm mb-1"><span>${d}</span><span class="font-semibold text-blue-300">${set.size} ${set.size===1?'persona':'personas'}</span></div>
+    <div class="mb-2"><div class="flex justify-between text-sm mb-1"><span>${d.split('-').reverse().join('/')}</span><span class="font-semibold text-blue-300">${set.size} ${set.size===1?'persona':'personas'}</span></div>
     <div class="h-1.5 bg-white/10 rounded-full"><div class="h-1.5 rounded-full" style="width:${set.size/maxd*100}%;background:#93c5fd"></div></div></div>`).join(''):'<p class="text-white/30 text-sm py-4 text-center">Sin clientes en este periodo.</p>';
   // top productos
   const top=Object.entries(prod).sort((a,b)=>b[1]-a[1]).slice(0,8);
@@ -1028,7 +1045,7 @@ function renderReportes(){
 }
 window.openGastoModal=function(){
   document.getElementById('gasto-concepto').value='';document.getElementById('gasto-monto').value='';
-  document.getElementById('gasto-cat').value='Insumos';document.getElementById('gasto-fecha').value=new Date().toISOString().slice(0,10);
+  document.getElementById('gasto-cat').value='Insumos';document.getElementById('gasto-fecha').value=todayStr();
   openModal('gastoModal');
 };
 window.saveGasto=function(){
@@ -1036,7 +1053,7 @@ window.saveGasto=function(){
   const monto=+document.getElementById('gasto-monto').value||0;
   if(!concepto||monto<=0){showToast('Completa concepto y monto');return;}
   const eid=uid();
-  db.ref('expenses/'+eid).set({id:eid,concepto,monto,categoria:document.getElementById('gasto-cat').value,fecha:document.getElementById('gasto-fecha').value||new Date().toISOString().slice(0,10)});
+  db.ref('expenses/'+eid).set({id:eid,concepto,monto,categoria:document.getElementById('gasto-cat').value,fecha:document.getElementById('gasto-fecha').value||todayStr()});
   closeModal('gastoModal');showToast('Gasto registrado');
 };
 window.delGasto=function(id){if(!confirm('¿Eliminar este gasto?'))return;db.ref('expenses/'+id).remove();};
@@ -1086,14 +1103,14 @@ function setupListeners(){
 if(typeof db!=='undefined'&&db){
   setupListeners();
 }else{
-  showToast('⚠️ Firebase no está configurado (revisa firebase-config.js)');
-  console.warn('Firebase no inicializado: pega tu configuración en firebase-config.js');
+  showToast('⚠️ No se pudo conectar con Firebase (revisa tu internet)');
+  console.warn('Firebase no inicializado: revisa la conexión a internet o el bloque firebaseConfig en este archivo.');
 }
 
 // Refresca los tiempos ("hace X min") cada 30 s.
 setInterval(renderAll,30000);
 
-function tick(){const c=document.getElementById('clock');if(c)c.innerHTML='<i class="far fa-clock"></i> '+new Date().toLocaleTimeString('es-MX');}
+function tick(){const c=document.getElementById('clock');if(c)c.innerHTML='<i class="far fa-clock"></i> '+fmtTime();}
 setInterval(tick,1000);tick();
 
 renderAll();
