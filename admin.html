@@ -853,11 +853,11 @@ function renderInv(){
   document.getElementById('inv-value').textContent=money(val);
   updateBadge('badge-inv',low);
 }
-window.openInvModal=function(){ ensureOwner(()=>{
+window.openInvModal=function(){
   document.getElementById('invModalTitle').textContent='Nuevo insumo';
   ['inv-id','inv-name','inv-stock','inv-unit','inv-min','inv-cost'].forEach(i=>document.getElementById(i).value='');
   openModal('invModal');
-});};
+};
 window.editInv=function(id){ authorize(()=>{
   const it=getInv().find(x=>x.id===id);if(!it)return;
   document.getElementById('invModalTitle').textContent='Editar insumo';
@@ -877,7 +877,7 @@ window.saveInv=function(){
 };
 window.delInv=function(id){ authorize(()=>{if(!confirm('¿Eliminar este insumo?'))return;db.ref('inventory/'+id).remove();});};
 let moveMode='in';
-window.openMove=function(id,mode){ ensureOwner(()=>{
+window.openMove=function(id,mode){
   moveMode=mode;const it=getInv().find(x=>x.id===id);if(!it)return;
   document.getElementById('move-id').value=id;
   document.getElementById('moveTitle').textContent=(mode==='in'?'Entrada':'Salida')+' de stock';
@@ -886,7 +886,7 @@ window.openMove=function(id,mode){ ensureOwner(()=>{
   document.getElementById('move-expense').checked=mode==='in';
   document.getElementById('move-expense-wrap').classList.toggle('hidden',mode!=='in');
   openModal('moveModal');
-});};
+};
 window.applyMove=function(){
   const id=+document.getElementById('move-id').value;const q=+document.getElementById('move-qty').value||0;
   if(q<=0){showToast('Cantidad inválida');return;}
