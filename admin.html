@@ -337,7 +337,7 @@ tr.low td{background:rgba(239,68,68,.08)}
 <div class="modal-bg" id="posModal">
   <div class="card w-full max-w-4xl p-0 overflow-hidden flex flex-col" style="height:92vh">
     <div class="flex items-center justify-between p-4 border-b border-white/10">
-      <h3 class="logo-font text-xl font-bold"><i class="fas fa-plus-circle gold"></i> Nueva orden</h3>
+      <h3 class="logo-font text-xl font-bold" id="pos-title"><i class="fas fa-plus-circle gold"></i> Nueva orden</h3>
       <button onclick="closeModal('posModal')" class="text-white/60 hover:text-white text-3xl leading-none">×</button>
     </div>
     <div class="flex flex-col md:flex-row flex-1 min-h-0">
@@ -353,7 +353,7 @@ tr.low td{background:rgba(239,68,68,.08)}
         <div id="pos-ticket" class="flex-1 overflow-y-auto p-3 space-y-1" style="min-height:80px"></div>
         <div class="p-3 border-t border-white/10">
           <div class="flex justify-between mb-3"><span class="text-white/60">Total</span><span id="pos-total" class="gold font-bold text-2xl">$0</span></div>
-          <button class="btn btn-gold w-full" onclick="posSend()"><i class="fas fa-paper-plane"></i> Enviar a cocina</button>
+          <button class="btn btn-gold w-full" id="pos-send-btn" onclick="posSend()"><i class="fas fa-paper-plane"></i> Enviar a cocina</button>
           <button class="btn btn-ghost w-full mt-2" onclick="posClear()">Vaciar</button>
         </div>
       </div>
@@ -568,7 +568,7 @@ function renderCocina(){
   const grid=document.getElementById('cocina-grid');
   document.getElementById('cocina-empty').classList.toggle('hidden',orders.length>0);
   grid.innerHTML=orders.map(o=>{
-    const itemsHtml=o.items.map(i=>`<div class="flex justify-between py-1 border-b border-white/5"><span><span class="gold font-bold">${i.qty}×</span> ${i.name}${i.size?` <span class="text-white/40">(${i.size})</span>`:''}</span></div>`).join('');
+    const itemsHtml=o.items.map(i=>`<div class="py-1 border-b border-white/5"><div class="flex justify-between"><span><span class="gold font-bold">${i.qty}×</span> ${i.name}${i.size?` <span class="text-white/40">(${i.size})</span>`:''}</span></div>${i.note?`<div class="text-yellow-200/90 text-xs pl-4"><i class="fas fa-angle-right"></i> ${i.note}</div>`:''}</div>`).join('');
     const next=o.status==='nuevo'?`<button class="btn btn-gold flex-1" onclick="setStatus(${o.id},'preparando')"><i class="fas fa-fire"></i> Preparar</button>`
       :o.status==='preparando'?`<button class="btn btn-green flex-1" onclick="setStatus(${o.id},'listo')"><i class="fas fa-check"></i> Marcar listo</button>`
       :`<span class="btn flex-1" style="background:rgba(34,197,94,.15);color:#86efac;cursor:default"><i class="fas fa-bell"></i> Listo · esperando caja</span>`;
@@ -581,7 +581,7 @@ function renderCocina(){
       <div class="text-sm mb-3">${itemsHtml}</div>
       ${o.notes?`<p class="text-xs bg-yellow-500/10 text-yellow-200 rounded-lg p-2 mb-3"><i class="fas fa-note-sticky"></i> ${o.notes}</p>`:''}
       <p class="text-right gold font-bold mb-3">${money(o.total)}</p>
-      <div class="flex gap-2">${next}<button class="btn btn-ghost" onclick="setStatus(${o.id},'cancelado')" title="Cancelar"><i class="fas fa-xmark"></i></button></div>
+      <div class="flex gap-2">${next}<button class="btn btn-ghost" onclick="openPOSedit(${o.id})" title="Editar comanda"><i class="fas fa-pen"></i></button><button class="btn btn-ghost" onclick="setStatus(${o.id},'cancelado')" title="Cancelar"><i class="fas fa-xmark"></i></button></div>
     </div>`;
   }).join('');
   const n=orders.length;updateBadge('badge-cocina',n);
@@ -604,7 +604,7 @@ function renderCaja(){
         <span class="font-bold">${o.table||'Sin mesa'}</span><span class="tag tag-${o.status}">${o.status}</span>
       </div>
       <p class="text-white/40 text-xs mb-2">#${String(o.id).slice(-4)} · ${o.items.reduce((s,i)=>s+i.qty,0)} art.${o.phone?` · <i class="fas fa-phone"></i> ${o.phone}`:''}</p>
-      <div class="text-xs text-white/60 mb-3">${o.items.map(i=>i.qty+'× '+itemLabel(i)).join(', ')}</div>
+      <div class="text-xs text-white/60 mb-3">${o.items.map(i=>i.qty+'× '+itemLabel(i)+(i.note?' ('+i.note+')':'')).join(', ')}</div>
       <div class="flex items-center justify-between mb-2">
         <span class="gold font-bold text-xl">${money(o.total)}</span>
         <button class="btn btn-green" onclick="openPay(${o.id})"><i class="fas fa-cash-register"></i> Cobrar</button>
@@ -714,7 +714,7 @@ function buildTicketDoc(o){
   if(o.phone){doc.text('Tel: '+o.phone,cx,y,{align:'center'});y+=4;}
   doc.text('------------------------------',cx,y,{align:'center'});y+=4;
   (o.items||[]).forEach(i=>{
-    const lines=doc.splitTextToSize(`${i.qty}x ${itemLabel(i)}`,54);
+    const lines=doc.splitTextToSize(`${i.qty}x ${itemLabel(i)}`+(i.note?` — ${i.note}`:''),54);
     doc.text(lines,4,y);
     doc.text(money(i.price*i.qty),76,y,{align:'right'});
     y+=4*lines.length;
@@ -745,7 +745,7 @@ async function shareTicketDoc(o){
 }
 window.shareTicket=function(id){const o=ordersCache[id];if(!o)return;shareTicketDoc(o);};
 function ticketHTML(o){
-  const rows=(o.items||[]).map(i=>`<tr><td>${i.qty}x ${itemLabel(i)}</td><td style="text-align:right">${money(i.price*i.qty)}</td></tr>`).join('');
+  const rows=(o.items||[]).map(i=>`<tr><td>${i.qty}x ${itemLabel(i)}${i.note?'<br><span style="font-size:10px">• '+i.note+'</span>':''}</td><td style="text-align:right;vertical-align:top">${money(i.price*i.qty)}</td></tr>`).join('');
   return `<html><head><meta charset="utf-8"><title>Ticket #${String(o.id).slice(-4)}</title><style>
     *{font-family:'Courier New',monospace}body{width:280px;margin:0 auto;padding:10px;color:#000}
     h2{text-align:center;margin:4px 0}p{margin:2px 0;text-align:center;font-size:12px}
@@ -771,16 +771,34 @@ window.printTicket=function(id){
   w.document.write(ticketHTML(o));w.document.close();
 };
 
-/* ============ POS: Nueva orden (personal) ============ */
-let posCart=[], posCat='alimentos', posSel={};
+/* ============ POS: Nueva orden / Editar (personal) ============ */
+let posCart=[], posCat='alimentos', posSel={}, posEditId=null;
 function posKey(n,s){return n+'|'+(s||'');}
-window.openPOS=function(){ posCat='alimentos'; renderPOS(); openModal('posModal'); };
+function posReset(){posCart=[];posCat='alimentos';posSel={};posEditId=null;
+  document.getElementById('pos-name').value='';document.getElementById('pos-phone').value='';}
+window.openPOS=function(){
+  posReset();
+  document.getElementById('pos-title').innerHTML='<i class="fas fa-plus-circle gold"></i> Nueva orden';
+  document.getElementById('pos-send-btn').innerHTML='<i class="fas fa-paper-plane"></i> Enviar a cocina';
+  renderPOS(); openModal('posModal');
+};
+window.openPOSedit=function(id){
+  const o=ordersCache[id]; if(!o)return;
+  posReset(); posEditId=id;
+  posCart=(o.items||[]).map(i=>({name:i.name,price:+i.price,size:i.size||'',qty:i.qty,note:i.note||''}));
+  document.getElementById('pos-name').value=o.table||'';
+  document.getElementById('pos-phone').value=o.phone||'';
+  document.getElementById('pos-title').innerHTML='<i class="fas fa-pen gold"></i> Editar orden #'+String(id).slice(-4);
+  document.getElementById('pos-send-btn').innerHTML='<i class="fas fa-floppy-disk"></i> Guardar cambios';
+  renderPOS(); openModal('posModal');
+};
 window.posClear=function(){ posCart=[]; renderPOS(); };
 window.posSetCat=function(c){ posCat=c; renderPOS(); };
 window.posPickSize=function(name,price,size){ posSel[slugify(name)]={price:+price,size}; renderPOS(); };
+window.posSetNote=function(idx,val){ if(posCart[idx])posCart[idx].note=val; };
 window.posAdd=function(name,price,size){
   size=size||''; const f=posCart.find(i=>posKey(i.name,i.size)===posKey(name,size));
-  if(f)f.qty++; else posCart.push({name,price:+price,size,qty:1});
+  if(f)f.qty++; else posCart.push({name,price:+price,size,qty:1,note:''});
   renderPOS();
 };
 window.posRemove=function(name,size){
@@ -803,7 +821,14 @@ function renderPOS(){
   }).join('');
   const tk=document.getElementById('pos-ticket');
   if(!posCart.length){tk.innerHTML='<p class="text-white/30 text-sm text-center py-6">Sin productos aún</p>';}
-  else tk.innerHTML=posCart.map(i=>`<div class="flex items-center justify-between gap-2 text-sm border-b border-white/5 py-1"><span class="flex-1 min-w-0 truncate">${i.qty}× ${itemLabel(i)}</span><span class="gold">${money(i.price*i.qty)}</span><button class="text-white/40 hover:text-red-400 ml-1" onclick="posRemove('${ea(i.name)}','${ea(i.size||'')}')">✕</button></div>`).join('');
+  else tk.innerHTML=posCart.map((i,idx)=>`<div class="border-b border-white/5 py-1.5">
+      <div class="flex items-center justify-between gap-2 text-sm">
+        <span class="flex-1 min-w-0 truncate">${i.qty}× ${itemLabel(i)}</span>
+        <span class="gold">${money(i.price*i.qty)}</span>
+        <button class="text-white/40 hover:text-red-400 ml-1" onclick="posRemove('${ea(i.name)}','${ea(i.size||'')}')">✕</button>
+      </div>
+      <input class="inp mt-1" style="padding:.25rem .5rem;font-size:.72rem" value="${(i.note||'').replace(/"/g,'&quot;')}" placeholder="Nota (ej. sin cebolla)" oninput="posSetNote(${idx},this.value)">
+    </div>`).join('');
   document.getElementById('pos-total').textContent=money(posCart.reduce((s,i)=>s+i.price*i.qty,0));
 }
 window.posSend=function(){
@@ -811,19 +836,24 @@ window.posSend=function(){
   const name=document.getElementById('pos-name').value.trim();
   if(!name){showToast('Escribe nombre / mesa');return;}
   const phone=document.getElementById('pos-phone').value.trim();
-  const items=posCart.map(i=>({...i}));
+  const items=posCart.map(i=>({name:i.name,price:+i.price,size:i.size||'',qty:i.qty,note:i.note||''}));
   const total=items.reduce((s,i)=>s+i.price*i.qty,0);
+  // Modo edición: actualiza la orden existente (misma comanda).
+  if(posEditId){
+    db.ref('orders/'+posEditId).update({items,total,table:name,phone});
+    closeModal('posModal');showToast('Orden actualizada ✓');posReset();return;
+  }
   const id=Date.now();
   db.ref('orders').once('value').then(snap=>{
     const all=snap.val()||{};
     const ex=Object.values(all).find(o=>o&&o.table&&norm(o.table)===norm(name)&&o.status!=='cobrado'&&o.status!=='cancelado');
     if(ex){
       const merged=Array.isArray(ex.items)?ex.items.map(i=>({...i})):[];
-      items.forEach(c=>{const f=merged.find(i=>posKey(i.name,i.size)===posKey(c.name,c.size));if(f)f.qty+=c.qty;else merged.push({...c});});
+      items.forEach(c=>{const f=merged.find(i=>posKey(i.name,i.size)===posKey(c.name,c.size));if(f){f.qty+=c.qty;if(c.note)f.note=c.note;}else merged.push({...c});});
       return db.ref('orders/'+ex.id).update({items:merged,total:merged.reduce((s,i)=>s+i.price*i.qty,0),status:'nuevo',phone:phone||ex.phone||''}).then(()=>'Se sumó al pedido de '+ex.table+' 🍞');
     }
     return db.ref('orders/'+id).set({id,table:name,phone,notes:'',items,total,status:'nuevo',createdAt:new Date().toISOString()}).then(()=>'¡Orden enviada a cocina! 🍞');
-  }).then(msg=>{posClear();document.getElementById('pos-name').value='';document.getElementById('pos-phone').value='';closeModal('posModal');showToast(msg);})
+  }).then(msg=>{posReset();closeModal('posModal');showToast(msg);})
    .catch(e=>{console.error(e);showToast('Error al enviar la orden');});
 };
 
