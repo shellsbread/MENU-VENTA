@@ -14,16 +14,16 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script>
-  // ===== Configuración de Firebase (proyecto receptorshells) =====
+  // ===== Configuración de Firebase (proyecto receptorshellvinedos) =====
   const firebaseConfig = {
-    apiKey: "AIzaSyBui-8372sLffI4yG7pLvMAwAqHMzFMkUI",
-    authDomain: "receptorshells.firebaseapp.com",
-    databaseURL: "https://receptorshells-default-rtdb.firebaseio.com",
-    projectId: "receptorshells",
-    storageBucket: "receptorshells.firebasestorage.app",
-    messagingSenderId: "109693415721",
-    appId: "1:109693415721:web:252609cd46121cf357c738",
-    measurementId: "G-MCFX5VCKS8"
+    apiKey: "AIzaSyC7Ui4dFC63AwK4uJr41l_1oq1pE-mMtEQ",
+    authDomain: "receptorshellvinedos.firebaseapp.com",
+    databaseURL: "https://receptorshellvinedos-default-rtdb.firebaseio.com",
+    projectId: "receptorshellvinedos",
+    storageBucket: "receptorshellvinedos.firebasestorage.app",
+    messagingSenderId: "506263763767",
+    appId: "1:506263763767:web:b341298cae4f145debb8b2",
+    measurementId: "G-99466M80BL"
   };
   firebase.initializeApp(firebaseConfig);
   const db = firebase.database();
@@ -301,24 +301,19 @@ tr.low td{background:rgba(239,68,68,.08)}
   <!-- ===================== CLIENTES ===================== -->
   <section id="tab-clientes" class="hidden">
     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-      <h1 class="logo-font text-2xl font-bold">Clientes</h1>
-      <input class="inp w-auto" id="cli-search" placeholder="Buscar nombre o teléfono..." oninput="renderClientes()" style="max-width:260px">
+      <h1 class="logo-font text-2xl font-bold">Clientes <span class="text-white/40 text-base font-normal" id="cli-total">0</span></h1>
+      <div class="flex items-center gap-2 flex-wrap">
+        <input class="inp w-auto" id="cli-search" placeholder="Buscar nombre o teléfono..." oninput="renderClientes()" style="max-width:220px">
+        <select class="inp w-auto" id="cli-gran">
+          <option value="dia">Por día</option>
+          <option value="semana">Por semana</option>
+          <option value="mes" selected>Por mes</option>
+        </select>
+        <button class="btn btn-gold" onclick="downloadClientes()"><i class="fas fa-download"></i> Descargar</button>
+      </div>
     </div>
-    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
-      <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Clientes</p><p class="stat-num" id="cli-total">0</p></div>
-      <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Visitas totales</p><p class="stat-num gold" id="cli-visitas">0</p></div>
-      <div class="card p-4"><p class="text-white/40 text-xs uppercase tracking-wider">Cliente más frecuente</p><p class="stat-num text-blue-300 text-lg" id="cli-top">—</p></div>
-    </div>
-    <div class="card overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead><tr class="text-white/40 text-xs uppercase tracking-wider border-b border-white/10">
-          <th class="text-left p-3">Cliente</th><th class="text-left p-3">Teléfono</th>
-          <th class="text-right p-3">Visitas</th><th class="text-left p-3">Última visita</th>
-        </tr></thead>
-        <tbody id="cli-body"></tbody>
-      </table>
-      <p id="cli-empty" class="text-white/30 text-center py-12">Aún no hay clientes. Se registran solos con cada pedido.</p>
-    </div>
+    <div id="cli-months"></div>
+    <p id="cli-empty" class="text-white/30 text-center py-12">Aún no hay clientes. Se registran solos con cada pedido.</p>
   </section>
 
   <!-- ===================== CONFIG ===================== -->
@@ -1589,37 +1584,69 @@ function setupListeners(){
   });
 }
 
-/* ============ CLIENTES: se calculan directamente de los pedidos (cada pedido = una visita) ============ */
-function renderClientes(){
-  const q=norm((document.getElementById('cli-search')||{}).value||'');
-  // Agrupa los pedidos por cliente, fusionando por teléfono o por nombre.
+/* ============ CLIENTES: se calculan directamente de los pedidos ============ */
+const MESES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+function monthLabel(mk){const[y,m]=mk.split('-');return (MESES[(+m)-1]||mk)+' '+y;}
+let cliOpen={};
+function clientGroups(){
+  // Un cliente por nombre/teléfono; guarda su última visita y cuántos pedidos hizo.
   const orders=getOrders().filter(o=>o&&o.table&&o.status!=='cancelado');
   const groups=[];
   orders.forEach(o=>{
     const nm=norm(o.table), ph=(o.phone||'').replace(/\D/g,'');
     let g=groups.find(x=>(ph&&x.phoneN&&ph===x.phoneN)||(nm&&norm(x.name)===nm));
-    if(!g){g={name:o.table,phone:o.phone||'',phoneN:ph,visitas:0,ultimaVisita:''};groups.push(g);}
-    g.visitas++;
+    if(!g){g={name:o.table,phone:o.phone||'',phoneN:ph,ultimaVisita:'',pedidos:0};groups.push(g);}
+    g.pedidos++;
     if(!g.phoneN&&ph){g.phone=o.phone;g.phoneN=ph;}
     const ts=o.paidAt||o.createdAt||'';
     if(ts>g.ultimaVisita)g.ultimaVisita=ts;
   });
-  const totalVis=groups.reduce((s,g)=>s+g.visitas,0);
-  const top=groups.slice().sort((a,b)=>b.visitas-a.visitas)[0];
-  document.getElementById('cli-total').textContent=groups.length;
-  document.getElementById('cli-visitas').textContent=totalVis;
-  document.getElementById('cli-top').textContent=top?(top.name||'—')+' ('+top.visitas+')':'—';
-  let list=groups;
-  if(q)list=list.filter(g=>norm(g.name).includes(q)||(g.phoneN||'').includes(q.replace(/\D/g,'')));
-  list=list.slice().sort((a,b)=>(b.ultimaVisita||'')<(a.ultimaVisita||'')?-1:1);
-  document.getElementById('cli-empty').classList.toggle('hidden',list.length>0);
-  document.getElementById('cli-body').innerHTML=list.map(g=>`<tr class="border-b border-white/5">
-    <td class="p-3 font-medium">${g.name||'—'}</td>
-    <td class="p-3 text-white/60">${g.phone||'—'}</td>
-    <td class="p-3 text-right gold font-bold">${g.visitas}</td>
-    <td class="p-3 text-white/60">${g.ultimaVisita?fmtDateTime(g.ultimaVisita):'—'}</td>
-  </tr>`).join('');
+  return groups;
 }
+window.toggleMonth=function(mk){cliOpen[mk]=!cliOpen[mk];renderClientes();};
+function renderClientes(){
+  const q=norm((document.getElementById('cli-search')||{}).value||'');
+  let groups=clientGroups();
+  document.getElementById('cli-total').textContent=groups.length+(groups.length===1?' cliente':' clientes');
+  if(q)groups=groups.filter(g=>norm(g.name).includes(q)||(g.phoneN||'').includes(q.replace(/\D/g,'')));
+  // agrupa por MES de la última visita
+  const byMonth={};
+  groups.forEach(g=>{const d=dayStr(g.ultimaVisita);const mk=d?d.slice(0,7):'0000-00';(byMonth[mk]=byMonth[mk]||[]).push(g);});
+  const months=Object.keys(byMonth).sort().reverse();
+  document.getElementById('cli-empty').classList.toggle('hidden',groups.length>0);
+  document.getElementById('cli-months').innerHTML=months.map((mk,i)=>{
+    const arr=byMonth[mk].sort((a,b)=>(b.ultimaVisita||'')<(a.ultimaVisita||'')?-1:1);
+    const open=!!cliOpen[mk]; // todos inician cerrados; se abren con la flecha
+    const label=mk==='0000-00'?'Sin fecha':monthLabel(mk);
+    return `<div class="card mb-2 overflow-hidden">
+      <button class="w-full flex items-center justify-between p-3 text-left hover:bg-white/5" onclick="toggleMonth('${mk}')">
+        <span class="font-semibold">${label} <span class="text-white/40 text-sm font-normal">· ${arr.length} ${arr.length===1?'cliente':'clientes'}</span></span>
+        <i class="fas fa-chevron-${open?'up':'down'} text-white/50"></i>
+      </button>
+      <div class="${open?'':'hidden'} overflow-x-auto"><table class="w-full text-sm"><tbody>
+        ${arr.map(g=>`<tr class="border-t border-white/5"><td class="p-2 pl-4 font-medium">${g.name||'—'}</td><td class="p-2 text-white/60">${g.phone||'—'}</td><td class="p-2 text-white/50 text-right pr-4">${g.ultimaVisita?fmtDateTime(g.ultimaVisita):'—'}</td></tr>`).join('')}
+      </tbody></table></div>
+    </div>`;
+  }).join('');
+}
+function weekStart(ds){const d=new Date(ds+'T12:00:00');const day=(d.getDay()+6)%7;d.setDate(d.getDate()-day);return tzDateStr(d);}
+function bucketOf(ts,gran){const d=dayStr(ts);if(!d)return 'Sin fecha';
+  if(gran==='dia')return d.split('-').reverse().join('/');
+  if(gran==='semana')return 'Semana del '+weekStart(d).split('-').reverse().join('/');
+  return monthLabel(d.slice(0,7));}
+function csvCell(v){v=(v==null?'':String(v));return '"'+v.replace(/"/g,'""')+'"';}
+window.downloadClientes=function(){
+  const gran=(document.getElementById('cli-gran')||{}).value||'mes';
+  const groups=clientGroups().sort((a,b)=>(b.ultimaVisita||'')<(a.ultimaVisita||'')?-1:1);
+  const rows=[['Periodo','Nombre','Teléfono','Última visita','Pedidos']];
+  groups.forEach(g=>rows.push([bucketOf(g.ultimaVisita,gran),g.name||'',g.phone||'',g.ultimaVisita?fmtDateTime(g.ultimaVisita):'',g.pedidos]));
+  const csv='﻿'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');
+  a.href=url;a.download='clientes-'+gran+'-'+todayStr()+'.csv';document.body.appendChild(a);a.click();
+  document.body.removeChild(a);setTimeout(()=>URL.revokeObjectURL(url),1000);
+  showToast('Descargando clientes ('+gran+')');
+};
 if(typeof db!=='undefined'&&db){
   setupListeners();
 }else{
