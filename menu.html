@@ -135,7 +135,7 @@
 <div id="toast" class="toast"></div>
 
 <script>
-const MENU_DATA = {
+let MENU_DATA = {
     alimentos:[
         {name:"NEW YORK",desc:"Pastrami, Mozzarella, Tomate Cherry, mix de lechugas y aderezo de la casa sobre focaccia",price:220},
         {name:"CHICAGO",desc:"Huevo revuelto con jamón de pavo, tomate cherry y mix de lechugas sobre focaccia",price:180},
@@ -179,6 +179,27 @@ const MENU_DATA = {
         {name:"Latte Caliente",desc:"Caliente",price:80},{name:"Expreso",desc:"Caliente",price:40}
     ]
 };
+
+// El dueño puede editar el menú desde el panel; se guarda en Firebase y se refleja aquí en vivo.
+let currentSec=null;
+try{
+  if(typeof db!=='undefined'&&db){
+    db.ref('menu').on('value',s=>{
+      const fb=s.val();
+      if(fb&&typeof fb==='object'&&Object.keys(fb).length){
+        const m={};
+        Object.keys(fb).forEach(k=>{
+          const arr=Array.isArray(fb[k])?fb[k]:Object.values(fb[k]||{});
+          m[k]=arr.filter(Boolean).map(it=>{const o={name:it.name,price:+it.price||0,desc:it.desc||''};if(it.sizes){const sz=(Array.isArray(it.sizes)?it.sizes:Object.values(it.sizes)).filter(Boolean).map(z=>({label:z.label,price:+z.price||0}));if(sz.length)o.sizes=sz;}return o;});
+        });
+        // conserva solo las categorías que el menú del cliente ya muestra
+        Object.keys(m).forEach(k=>{MENU_DATA[k]=m[k];});
+        const modal=document.getElementById('modal');
+        if(currentSec&&modal&&!modal.classList.contains('hidden'))openModal(currentSec);
+      }
+    });
+  }
+}catch(e){console.warn('Menú en vivo no disponible:',e);}
 
 const sections=[
     {id:"alimentos",title:"ALIMENTOS",img:"alimentos.png"},
@@ -275,6 +296,7 @@ function renderItemControl(slug){
 function refreshModalControls(){Object.keys(MODAL).forEach(renderItemControl);}
 
 function openModal(sec){
+    currentSec=sec;
     const modal=document.getElementById('modal');
     const content=document.getElementById('modal-content');
     const items=MENU_DATA[sec.id]||[];
