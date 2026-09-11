@@ -618,12 +618,14 @@ tr.low td{background:rgba(239,68,68,.08)}
       <h3 class="logo-font text-lg font-bold" id="repCalTitle">Mes</h3>
       <button class="btn btn-ghost" style="padding:.3rem .6rem" onclick="repCalShift(1)"><i class="fas fa-chevron-right"></i></button>
     </div>
+    <p id="repCalRangeLbl" class="text-center text-xs text-white/50 mb-2">Elige la fecha de inicio</p>
     <div class="grid grid-cols-7 gap-1 text-center text-[11px] text-white/40 mb-1">
       <span>D</span><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span>
     </div>
     <div id="repCalGrid" class="grid grid-cols-7 gap-1"></div>
     <div class="flex gap-2 mt-5">
       <button class="btn btn-ghost flex-1" onclick="repCalToday()">Hoy</button>
+      <button class="btn btn-ghost flex-1" onclick="repCalReset()">Reiniciar</button>
       <button class="btn btn-ghost flex-1" onclick="closeModal('repCalModal')">Cerrar</button>
     </div>
   </div>
@@ -1049,7 +1051,7 @@ function inRange(v,range){
   if(range==='today')return day===today;
   if(range==='month')return day.slice(0,7)===today.slice(0,7);
   if(range==='week'){const wa=tzDateStr(new Date(Date.now()-6*86400000));return day>=wa&&day<=today;}
-  if(range==='custom')return repCustomDate?day===repCustomDate:false;
+  if(range==='custom')return (repRangeStart&&repRangeEnd)?(day>=repRangeStart&&day<=repRangeEnd):false;
   return true;
 }
 function elapsed(iso){
@@ -1849,7 +1851,7 @@ window.saveCosts=function(){
 };
 
 /* ============ REPORTES ============ */
-let repCustomDate=null, repCalMonth=null;
+let repRangeStart=null, repRangeEnd=null, repCalMonth=null, repPickStage='start';
 function repRangeChange(){
   const v=document.getElementById('rep-range').value;
   if(v==='custom'){ openRepCalendar(); return; }
@@ -1857,7 +1859,7 @@ function repRangeChange(){
   renderReportes();
 }
 window.openRepCalendar=function(){
-  repCalMonth=repCustomDate?repCustomDate.slice(0,7):todayStr().slice(0,7);
+  repCalMonth=repRangeStart?repRangeStart.slice(0,7):todayStr().slice(0,7);
   renderRepCal();
   openModal('repCalModal');
 };
@@ -1867,7 +1869,16 @@ window.repCalShift=function(n){
   repCalMonth=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
   renderRepCal();
 };
-window.repCalToday=function(){ repCalMonth=todayStr().slice(0,7); renderRepCal(); };
+window.repCalToday=function(){
+  const t=todayStr();
+  repRangeStart=t; repRangeEnd=t; repPickStage='start';
+  applyRepRange();
+};
+window.repCalReset=function(){
+  repRangeStart=null; repRangeEnd=null; repPickStage='start';
+  repCalMonth=todayStr().slice(0,7);
+  renderRepCal();
+};
 function renderRepCal(){
   const [y,m]=repCalMonth.split('-').map(Number);
   document.getElementById('repCalTitle').textContent=(MESES[m-1]||m)+' '+y;
@@ -1878,19 +1889,39 @@ function renderRepCal(){
   for(let i=0;i<startDow;i++)cells.push('<span></span>');
   for(let d=1;d<=daysInMonth;d++){
     const ds=y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0');
-    const isToday=ds===today, isSel=ds===repCustomDate;
-    const style=isSel?'background:#F5C400;color:#000;border-color:#F5C400;font-weight:700':(isToday?'border-color:#F5C400':'');
+    const isToday=ds===today;
+    const isStart=ds===repRangeStart, isEnd=ds===repRangeEnd;
+    const inBetween=repRangeStart&&repRangeEnd&&ds>repRangeStart&&ds<repRangeEnd;
+    let style='';
+    if(isStart||isEnd) style='background:#F5C400;color:#000;border-color:#F5C400;font-weight:700';
+    else if(inBetween) style='background:rgba(245,196,0,.22);border-color:rgba(245,196,0,.5)';
+    else if(isToday) style='border-color:#F5C400';
     cells.push(`<button class="size-btn" style="padding:.4rem 0;${style}" onclick="repCalPick('${ds}')">${d}</button>`);
   }
   document.getElementById('repCalGrid').innerHTML=cells.join('');
+  const lbl=document.getElementById('repCalRangeLbl');
+  if(!repRangeStart) lbl.textContent='Elige la fecha de inicio';
+  else if(repPickStage==='end') lbl.textContent='Desde '+repRangeStart.split('-').reverse().join('/')+' — elige la fecha final';
+  else lbl.textContent='Desde '+repRangeStart.split('-').reverse().join('/')+(repRangeEnd&&repRangeEnd!==repRangeStart?' hasta '+repRangeEnd.split('-').reverse().join('/'):'');
 }
 window.repCalPick=function(ds){
-  repCustomDate=ds;
+  if(repPickStage==='start'||!repRangeStart){
+    repRangeStart=ds; repRangeEnd=null; repPickStage='end';
+    renderRepCal();
+    return;
+  }
+  if(ds<repRangeStart){ repRangeEnd=repRangeStart; repRangeStart=ds; } else { repRangeEnd=ds; }
+  applyRepRange();
+};
+function applyRepRange(){
+  repPickStage='start';
   document.getElementById('rep-range').value='custom';
-  document.getElementById('rep-custom-label').textContent=ds.split('-').reverse().join('/');
+  const s=repRangeStart.split('-').reverse().join('/');
+  const e=repRangeEnd.split('-').reverse().join('/');
+  document.getElementById('rep-custom-label').textContent = s===e ? s : (s+' – '+e);
   closeModal('repCalModal');
   renderReportes();
-};
+}
 function renderReportes(){
   const range=document.getElementById('rep-range').value;
   const costs=getCosts();
