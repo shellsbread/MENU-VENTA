@@ -31,7 +31,9 @@
   const auth = firebase.auth();
   // App secundaria de Firebase: crea cuentas de empleados o verifica la contraseña
   // del dueño (paso de autorización) SIN cerrar la sesión de quien está usando el panel.
-  const auth2 = firebase.initializeApp(firebaseConfig, 'Secondary').auth();
+  const app2 = firebase.initializeApp(firebaseConfig, 'Secondary');
+  const auth2 = app2.auth();
+  const db2 = app2.database(); // lee con la sesión de la app secundaria (la del dueño al autorizar)
 </script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Poppins:wght@400;500;600&display=swap');
@@ -811,12 +813,15 @@ function userLabel(){return currentUser?(currentUser.name||currentUser.user):'';
 // reconstruimos currentUser leyendo su perfil (nombre/rol) desde la base de datos.
 auth.onAuthStateChanged(function(fbUser){
   if(fbUser){
+    // Ya hay sesión: ahora sí conectamos los datos en tiempo real.
+    setupListeners();
     db.ref('users/'+fbUser.uid).once('value').then(function(snap){
       const prof=snap.val();
       currentUser=(prof&&prof.role)?{uid:fbUser.uid,user:prof.user||fbUser.email,name:prof.name||prof.user,role:prof.role}:null;
       applySession();
-    });
+    }).catch(function(e){console.error('No se pudo leer el perfil:',e);});
   }else{
+    stopListeners();
     currentUser=null;
     applySession();
   }
@@ -868,7 +873,7 @@ window.doLogin=function(){
   // Verifica usuario+contraseña del dueño con una app de Firebase secundaria,
   // así no se cierra la sesión de quien está usando el panel ahora mismo.
   auth2.signInWithEmailAndPassword(userEmail(u),p).then(function(cred){
-    return db.ref('users/'+cred.user.uid+'/role').once('value').then(function(snap){
+    return db2.ref('users/'+cred.user.uid+'/role').once('value').then(function(snap){
       const ok=snap.val()==='owner';
       return auth2.signOut().then(function(){return ok;});
     });
@@ -1021,15 +1026,25 @@ window.delMenuItem=function(idx){
   ensureDraft();menuDraft[menuCat].splice(idx,1);renderMenuEditor();showToast('Eliminado (recuerda Guardar cambios)');
 };
 window.saveMenu=function(){
+  // Nunca guardar si el menú real de Firebase no ha cargado: el borrador saldría del
+  // menú por defecto y sobrescribiría los cambios que ya estaban guardados.
+  if(!menuLoaded){showToast('⚠️ El menú aún no carga de Firebase. Revisa tu internet y recarga la página.');return;}
   ensureDraft();
-  db.ref('menu').set(menuDraft);
-  showToast('Menú guardado ✓ (POS y cliente actualizados)');
+  const draft=menuDraft;
+  db.ref('menu').set(draft).then(function(){
+    showToast('Menú guardado ✓ (POS y cliente actualizados)');
+  }).catch(function(e){
+    console.error('Error al guardar el menú:',e);
+    menuDraft=draft;renderMenuEditor(); // conserva lo que editaste para reintentar
+    showToast('❌ No se guardó el menú: '+(e&&e.code==='PERMISSION_DENIED'?'sin permiso (reglas de Firebase)':'revisa tu internet'));
+  });
 };
 window.restoreMenu=function(){
   if(!confirm('¿Restaurar el menú original? Se perderán tus cambios guardados.'))return;
-  menuDraft=JSON.parse(JSON.stringify(DEFAULT_MENU));
-  db.ref('menu').remove();
-  renderMenuEditor();showToast('Menú restaurado al original');
+  db.ref('menu').remove().then(function(){
+    menuDraft=JSON.parse(JSON.stringify(DEFAULT_MENU));
+    renderMenuEditor();showToast('Menú restaurado al original');
+  }).catch(function(e){console.error(e);showToast('❌ No se pudo restaurar el menú');});
 };
 
 /* ============ Tabs ============ */
@@ -2116,32 +2131,53 @@ function renderAll(){
 }
 
 /* ============ Listeners en tiempo real de Firebase ============ */
-let lastNew=0, firstSnapshot=true;
+// Las reglas de Firebase exigen sesión iniciada para leer. Si un listener se conecta sin
+// sesión (o el token vence y no se renueva a tiempo), Firebase lo CANCELA para siempre.
+// Por eso los listeners se conectan solo con sesión activa y se reconectan si se cancelan.
+let lastNew=0, firstSnapshot=true, listenersOn=false, activeRefs=[], menuLoaded=false;
+const OWNER_PATHS=['users','productCosts'];
+function listen(path,cb){
+  const ref=db.ref(path);
+  ref.on('value',cb,function(err){
+    console.warn('Listener cancelado en /'+path+':',err&&err.message);
+    if(path==='menu'){menuLoaded=false;showToast('⚠️ No se pudo leer el menú de Firebase');}
+    // Reintenta mientras siga habiendo sesión (p. ej. el token se renovó).
+    if(OWNER_PATHS.includes(path)&&!isOwner())return; // solo el dueño puede leerlos (reglas): es normal
+    setTimeout(function(){if(listenersOn&&auth.currentUser)listen(path,cb);},5000);
+  });
+  activeRefs.push(ref);
+}
+function stopListeners(){
+  activeRefs.forEach(r=>r.off());activeRefs=[];listenersOn=false;menuLoaded=false;firstSnapshot=true;
+}
 function setupListeners(){
-  db.ref('orders').on('value',s=>{
+  if(listenersOn)return;
+  listenersOn=true;
+  const on=listen;
+  on('orders',s=>{
     ordersCache=s.val()||{};
     const n=getOrders().filter(o=>o.status==='nuevo').length;
     if(!firstSnapshot && n>lastNew){beep();showToast('🔔 ¡Nuevo pedido!');}
     lastNew=n;firstSnapshot=false;
     renderAll();
   });
-  db.ref('inventory').on('value',s=>{invCache=s.val()||{};renderAll();});
-  db.ref('expenses').on('value',s=>{expCache=s.val()||{};renderAll();});
-  db.ref('productCosts').on('value',s=>{
+  on('inventory',s=>{invCache=s.val()||{};renderAll();});
+  on('expenses',s=>{expCache=s.val()||{};renderAll();});
+  on('productCosts',s=>{
     const v=s.val()||[];costsCache={};
     (Array.isArray(v)?v:Object.values(v)).forEach(c=>{if(c&&c.name)costsCache[c.name]=+c.cost;});
     renderAll();
   });
-  db.ref('recipes').on('value',s=>{
+  on('recipes',s=>{
     const v=s.val()||{};recipesCache={};
     Object.values(v).forEach(r=>{if(r&&r.product)recipesCache[norm(r.product)]=r;});
     renderAll();
   });
-  db.ref('settings/fondoByDate').on('value',s=>{fondoByDate=s.val()||{};const t=fondoByDate[todayStr()];cashFloatCache=t?(+t.total||0):0;renderAll();});
-  db.ref('discounts').on('value',s=>{discountsCache=s.val()||{};if(activeTab==='config')renderConfig();});
-  db.ref('users').on('value',s=>{usersCache=s.val()||{};renderConfig();});
-  db.ref('cortes').on('value',s=>{cortesCache=s.val()||{};if(activeTab==='reportes')renderReportes();});
-  db.ref('menu').on('value',s=>{
+  on('settings/fondoByDate',s=>{fondoByDate=s.val()||{};const t=fondoByDate[todayStr()];cashFloatCache=t?(+t.total||0):0;renderAll();});
+  on('discounts',s=>{discountsCache=s.val()||{};if(activeTab==='config')renderConfig();});
+  on('users',s=>{usersCache=s.val()||{};renderConfig();});
+  on('cortes',s=>{cortesCache=s.val()||{};if(activeTab==='reportes')renderReportes();});
+  on('menu',s=>{
     const fb=s.val();
     if(fb&&typeof fb==='object'&&Object.keys(fb).length){
       const m={};
@@ -2158,6 +2194,7 @@ function setupListeners(){
     }else{
       MENU_DATA=JSON.parse(JSON.stringify(DEFAULT_MENU));
     }
+    menuLoaded=true;
     menuDraft=null;
     renderAll();
   });
@@ -2226,9 +2263,7 @@ window.downloadClientes=function(){
   document.body.removeChild(a);setTimeout(()=>URL.revokeObjectURL(url),1000);
   showToast('Descargando clientes ('+gran+')');
 };
-if(typeof db!=='undefined'&&db){
-  setupListeners();
-}else{
+if(typeof db==='undefined'||!db){
   showToast('⚠️ No se pudo conectar con Firebase (revisa tu internet)');
   console.warn('Firebase no inicializado: revisa la conexión a internet o el bloque firebaseConfig en este archivo.');
 }
